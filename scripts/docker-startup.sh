@@ -73,6 +73,9 @@ kosmtik)
   fi
   export KOSMTIK_CONFIGPATH=".kosmtik-config.yml"
 
+  # Rendering expensive debug tiles can take longer than Node's HTTP defaults.
+  export NODE_OPTIONS="--require /openstreetmap-carto/scripts/kosmtik-disable-timeouts.js ${NODE_OPTIONS}"
+
   # Starting Kosmtik
   kosmtik serve project.mml --host 0.0.0.0
   # It needs Ctrl+C to be interrupted
