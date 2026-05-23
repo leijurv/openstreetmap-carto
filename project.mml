@@ -1832,13 +1832,17 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        -- Visible seed ways are recursively extended along exact endpoints
-        -- while the shield rendering signature (class, ref, layer) stays
-        -- identical. At forks, candidate ways are kept as non-expanding
-        -- blockers so the final ST_LineMerge still sees the branch degree and
-        -- does not merge through it. ST_Dump then unnests disjoint pieces, so
-        -- each piece keeps its own shield.
-        (WITH RECURSIVE walked AS (
+        -- Visible ways with both endpoints inside the bbox are merged into
+        -- frontier seeds; ways that cross the bbox edge are kept as one-way
+        -- seeds to avoid collapsing through off-bbox junctions (the merge
+        -- would otherwise hide a real fork sitting just outside the bbox).
+        -- Each seed is then recursively extended along exact endpoints while
+        -- the shield rendering signature (class, ref, layer) stays identical.
+        -- At forks, candidate ways are kept as non-expanding blockers so the
+        -- final ST_LineMerge still sees the branch degree and does not merge
+        -- through it. ST_Dump then unnests disjoint pieces, so each piece
+        -- keeps its own shield.
+        (WITH RECURSIVE visible AS (
             SELECT
                 osm_id,
                 way,
@@ -1848,13 +1852,38 @@ Layer:
                   CASE WHEN aeroway IN ('runway', 'taxiway') THEN aeroway END
                 ) AS highway,
                 ref,
-                ST_StartPoint(way) AS a,
-                ST_EndPoint(way) AS b,
-                TRUE AS expand
+                ST_Covers(!bbox!, ST_StartPoint(way)) AND ST_Covers(!bbox!, ST_EndPoint(way)) AS fully_inside
               FROM planet_osm_line
               WHERE way && !bbox!
                 AND (highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR aeroway IN ('runway', 'taxiway'))
                 AND ref IS NOT NULL
+        ),
+        seed_geoms AS (
+            SELECT
+                (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
+                layer,
+                highway,
+                ref
+              FROM visible
+              WHERE fully_inside
+              GROUP BY highway, ref, layer
+          UNION ALL
+            SELECT way, layer, highway, ref
+              FROM visible
+              WHERE NOT fully_inside
+        ),
+        walked AS (
+            SELECT
+                NULL::bigint AS osm_id,
+                way,
+                layer,
+                highway,
+                ref,
+                pt,
+                FALSE AS include,
+                TRUE AS expand
+              FROM seed_geoms
+              CROSS JOIN LATERAL (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
           UNION
             SELECT
                 n.osm_id,
@@ -1862,11 +1891,10 @@ Layer:
                 n.layer,
                 n.highway,
                 n.ref,
-                n.a,
-                n.b,
+                n.next_pt AS pt,
+                TRUE AS include,
                 n.expand
               FROM walked w
-              JOIN LATERAL (VALUES (w.a), (w.b)) AS ep(pt) ON w.expand
               JOIN LATERAL (
                 SELECT c.*, (c.candidate_count = 1) AS expand
                   FROM (
@@ -1881,10 +1909,15 @@ Layer:
                               CASE WHEN l.aeroway IN ('runway', 'taxiway') THEN l.aeroway END
                             ) AS highway,
                             l.ref,
-                            ST_StartPoint(l.way) AS a,
-                            ST_EndPoint(l.way) AS b
+                            CASE
+                              WHEN ST_Equals(ST_StartPoint(l.way), w.pt) THEN ST_EndPoint(l.way)
+                              ELSE ST_StartPoint(l.way)
+                            END AS next_pt
                           FROM planet_osm_line l
-                          WHERE l.osm_id <> w.osm_id
+                          WHERE CASE
+                                  WHEN w.osm_id IS NULL THEN NOT ST_CoveredBy(l.way, w.way)
+                                  ELSE l.osm_id <> w.osm_id
+                                END
                             AND (l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR l.aeroway IN ('runway', 'taxiway'))
                             AND COALESCE(l.layer, 0) = w.layer
                             AND COALESCE(
@@ -1892,21 +1925,31 @@ Layer:
                                   CASE WHEN l.aeroway IN ('runway', 'taxiway') THEN l.aeroway END
                                 ) = w.highway
                             AND l.ref = w.ref
-                            AND l.way && ep.pt
-                            AND (ST_Equals(ST_StartPoint(l.way), ep.pt) OR ST_Equals(ST_EndPoint(l.way), ep.pt))
+                            AND l.way && w.pt
+                            AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
+                          ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
                   ) AS c
-              ) AS n ON true
+              ) AS n ON w.expand
         ),
         raw AS (
-            SELECT DISTINCT
+            SELECT
+                osm_id,
+                way,
+                layer,
+                highway,
+                ref
+              FROM visible
+          UNION
+            SELECT
                 osm_id,
                 way,
                 layer,
                 highway,
                 ref
               FROM walked
+              WHERE include
         ),
         merged AS (
             SELECT
@@ -1982,20 +2025,24 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        -- Merged-name layer for issue #951: visible seed ways are recursively
-        -- extended along exact endpoints while the rendering-relevant signature
-        -- (highway, tunnel, construction, name, layer) stays identical. At
-        -- forks, candidate ways are kept as non-expanding blockers so the final
-        -- ST_LineMerge still sees the branch degree and does not merge through
-        -- it. _link is kept in the recursive signature as highway_raw to avoid
-        -- pulling a motorway through its offramp; it is stripped only at SELECT
-        -- time for the symbolizer. ST_Dump then unnests disjoint pieces, so each
-        -- piece keeps its own label.
+        -- Merged-name layer for issue #951: visible ways with both endpoints
+        -- inside the bbox are merged into frontier seeds; ways that cross the
+        -- bbox edge are kept as one-way seeds to avoid collapsing through
+        -- off-bbox junctions (the merge would otherwise hide a real fork
+        -- sitting just outside the bbox). Each seed is then recursively
+        -- extended along exact endpoints while the rendering-relevant
+        -- signature (highway, tunnel, construction, name, layer) stays
+        -- identical. At forks, candidate ways are kept as non-expanding
+        -- blockers so the final ST_LineMerge still sees the branch degree and
+        -- does not merge through it. _link is kept in the recursive signature
+        -- as highway_raw to avoid pulling a motorway through its offramp; it
+        -- is stripped only at SELECT time for the symbolizer. ST_Dump then
+        -- unnests disjoint pieces, so each piece keeps its own label.
         --
         -- The one-way arrows live in a separate, unmerged layer
         -- (roads-direction-arrows) because ST_LineMerge does not preserve
         -- linestring orientation.
-        (WITH RECURSIVE walked AS (
+        (WITH RECURSIVE visible AS (
             SELECT
                 osm_id,
                 way,
@@ -2006,14 +2053,46 @@ Layer:
                 CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
                 construction,
                 name,
-                ST_StartPoint(way) AS a,
-                ST_EndPoint(way) AS b,
-                TRUE AS expand
+                ST_Covers(!bbox!, ST_StartPoint(way)) AND ST_Covers(!bbox!, ST_EndPoint(way)) AS fully_inside
               FROM planet_osm_line
               WHERE way && !bbox!
                 AND highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
                                 'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
                 AND name IS NOT NULL
+        ),
+        seed_geoms AS (
+            SELECT
+                (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
+                layer,
+                highway_raw,
+                highway,
+                tunnel,
+                construction,
+                name
+              FROM visible
+              WHERE fully_inside
+              GROUP BY highway_raw, highway, tunnel, construction, name, layer
+          UNION ALL
+            SELECT way, layer, highway_raw, highway, tunnel, construction, name
+              FROM visible
+              WHERE NOT fully_inside
+        ),
+        walked AS (
+            SELECT
+                NULL::bigint AS osm_id,
+                way,
+                NULL::integer AS z_order,
+                layer,
+                highway_raw,
+                highway,
+                tunnel,
+                construction,
+                name,
+                pt,
+                FALSE AS include,
+                TRUE AS expand
+              FROM seed_geoms
+              CROSS JOIN LATERAL (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
           UNION
             SELECT
                 n.osm_id,
@@ -2025,11 +2104,10 @@ Layer:
                 n.tunnel,
                 n.construction,
                 n.name,
-                n.a,
-                n.b,
+                n.next_pt AS pt,
+                TRUE AS include,
                 n.expand
               FROM walked w
-              JOIN LATERAL (VALUES (w.a), (w.b)) AS ep(pt) ON w.expand
               JOIN LATERAL (
                 SELECT c.*, (c.candidate_count = 1) AS expand
                   FROM (
@@ -2045,24 +2123,42 @@ Layer:
                             CASE WHEN (l.tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR l.covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
                             l.construction,
                             l.name,
-                            ST_StartPoint(l.way) AS a,
-                            ST_EndPoint(l.way) AS b
+                            CASE
+                              WHEN ST_Equals(ST_StartPoint(l.way), w.pt) THEN ST_EndPoint(l.way)
+                              ELSE ST_StartPoint(l.way)
+                            END AS next_pt
                           FROM planet_osm_line l
-                          WHERE l.osm_id <> w.osm_id
+                          WHERE CASE
+                                  WHEN w.osm_id IS NULL THEN NOT ST_CoveredBy(l.way, w.way)
+                                  ELSE l.osm_id <> w.osm_id
+                                END
                             AND l.highway = w.highway_raw
                             AND COALESCE(l.layer, 0) = w.layer
                             AND l.construction IS NOT DISTINCT FROM w.construction
                             AND l.name = w.name
                             AND (CASE WHEN (l.tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR l.covered = 'yes') THEN 'yes' ELSE 'no' END) = w.tunnel
-                            AND l.way && ep.pt
-                            AND (ST_Equals(ST_StartPoint(l.way), ep.pt) OR ST_Equals(ST_EndPoint(l.way), ep.pt))
+                            AND l.way && w.pt
+                            AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
+                          ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
                   ) AS c
-              ) AS n ON true
+              ) AS n ON w.expand
         ),
         raw AS (
-            SELECT DISTINCT
+            SELECT
+                osm_id,
+                way,
+                z_order,
+                layer,
+                highway_raw,
+                highway,
+                tunnel,
+                construction,
+                name
+              FROM visible
+          UNION
+            SELECT
                 osm_id,
                 way,
                 z_order,
@@ -2073,6 +2169,7 @@ Layer:
                 construction,
                 name
               FROM walked
+              WHERE include
         )
         SELECT
             (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
@@ -2187,20 +2284,45 @@ Layer:
       table: |-
         -- Merged shield layer for issue #951; see roads-text-ref for the
         -- same recursive endpoint-walk pattern.
-        (WITH RECURSIVE walked AS (
+        (WITH RECURSIVE visible AS (
             SELECT
                 osm_id,
                 way,
                 COALESCE(layer, 0) AS layer,
                 CASE WHEN highway IN ('unclassified', 'residential', 'track') THEN highway END AS highway,
                 ref,
-                ST_StartPoint(way) AS a,
-                ST_EndPoint(way) AS b,
-                TRUE AS expand
+                ST_Covers(!bbox!, ST_StartPoint(way)) AND ST_Covers(!bbox!, ST_EndPoint(way)) AS fully_inside
               FROM planet_osm_line
               WHERE way && !bbox!
                 AND highway IN ('unclassified', 'residential', 'track')
                 AND ref IS NOT NULL
+        ),
+        seed_geoms AS (
+            SELECT
+                (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
+                layer,
+                highway,
+                ref
+              FROM visible
+              WHERE fully_inside
+              GROUP BY highway, ref, layer
+          UNION ALL
+            SELECT way, layer, highway, ref
+              FROM visible
+              WHERE NOT fully_inside
+        ),
+        walked AS (
+            SELECT
+                NULL::bigint AS osm_id,
+                way,
+                layer,
+                highway,
+                ref,
+                pt,
+                FALSE AS include,
+                TRUE AS expand
+              FROM seed_geoms
+              CROSS JOIN LATERAL (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
           UNION
             SELECT
                 n.osm_id,
@@ -2208,11 +2330,10 @@ Layer:
                 n.layer,
                 n.highway,
                 n.ref,
-                n.a,
-                n.b,
+                n.next_pt AS pt,
+                TRUE AS include,
                 n.expand
               FROM walked w
-              JOIN LATERAL (VALUES (w.a), (w.b)) AS ep(pt) ON w.expand
               JOIN LATERAL (
                 SELECT c.*, (c.candidate_count = 1) AS expand
                   FROM (
@@ -2224,28 +2345,43 @@ Layer:
                             COALESCE(l.layer, 0) AS layer,
                             CASE WHEN l.highway IN ('unclassified', 'residential', 'track') THEN l.highway END AS highway,
                             l.ref,
-                            ST_StartPoint(l.way) AS a,
-                            ST_EndPoint(l.way) AS b
+                            CASE
+                              WHEN ST_Equals(ST_StartPoint(l.way), w.pt) THEN ST_EndPoint(l.way)
+                              ELSE ST_StartPoint(l.way)
+                            END AS next_pt
                           FROM planet_osm_line l
-                          WHERE l.osm_id <> w.osm_id
+                          WHERE CASE
+                                  WHEN w.osm_id IS NULL THEN NOT ST_CoveredBy(l.way, w.way)
+                                  ELSE l.osm_id <> w.osm_id
+                                END
                             AND l.highway = w.highway
                             AND COALESCE(l.layer, 0) = w.layer
                             AND l.ref = w.ref
-                            AND l.way && ep.pt
-                            AND (ST_Equals(ST_StartPoint(l.way), ep.pt) OR ST_Equals(ST_EndPoint(l.way), ep.pt))
+                            AND l.way && w.pt
+                            AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
+                          ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
                   ) AS c
-              ) AS n ON true
+              ) AS n ON w.expand
         ),
         raw AS (
-            SELECT DISTINCT
+            SELECT
+                osm_id,
+                way,
+                layer,
+                highway,
+                ref
+              FROM visible
+          UNION
+            SELECT
                 osm_id,
                 way,
                 layer,
                 highway,
                 ref
               FROM walked
+              WHERE include
         ),
         merged AS (
             SELECT
