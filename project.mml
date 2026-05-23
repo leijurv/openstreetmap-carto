@@ -1832,16 +1832,20 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        -- Visible ways with both endpoints inside the bbox are merged into
-        -- frontier seeds; ways that cross the bbox edge are kept as one-way
-        -- seeds to avoid collapsing through off-bbox junctions (the merge
-        -- would otherwise hide a real fork sitting just outside the bbox).
-        -- Each seed is then recursively extended along exact endpoints while
-        -- the shield rendering signature (class, ref, layer) stays identical.
-        -- At forks, candidate ways are kept as non-expanding blockers so the
+        -- Ways crossing the bbox edge ("branch-2") are walked from their
+        -- off-bbox endpoints to discover same-signature continuations outside
+        -- the bbox. Fully-inside ways are NOT walked: by construction any way
+        -- meeting a fully-inside way at an endpoint also has way && bbox, so
+        -- it is already in `visible`, and fork detection at in-bbox junctions
+        -- falls out of the final ST_LineMerge over `raw`. At each step we
+        -- count all candidates (for fork detection) but only insert the
+        -- invisible ones (NOT (way && bbox)) into `walked` — visible ways
+        -- already appear in `raw` via `visible`, so re-adding them just
+        -- propagates walks into territory we already cover. At forks
+        -- (count > 1), candidates are kept as non-expanding blockers so the
         -- final ST_LineMerge still sees the branch degree and does not merge
-        -- through it. ST_Dump then unnests disjoint pieces, so each piece
-        -- keeps its own shield.
+        -- through it. ST_Dump unnests disjoint pieces so each keeps its
+        -- own shield.
         (WITH RECURSIVE visible AS (
             SELECT
                 osm_id,
@@ -1858,32 +1862,22 @@ Layer:
                 AND (highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR aeroway IN ('runway', 'taxiway'))
                 AND ref IS NOT NULL
         ),
-        seed_geoms AS (
-            SELECT
-                (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
-                layer,
-                highway,
-                ref
-              FROM visible
-              WHERE fully_inside
-              GROUP BY highway, ref, layer
-          UNION ALL
-            SELECT way, layer, highway, ref
-              FROM visible
-              WHERE NOT fully_inside
-        ),
         walked AS (
+            -- Base: each crossing way, only its off-bbox endpoint(s)
             SELECT
-                NULL::bigint AS osm_id,
+                osm_id,
                 way,
                 layer,
                 highway,
                 ref,
                 pt,
-                FALSE AS include,
                 TRUE AS expand
-              FROM seed_geoms
-              CROSS JOIN LATERAL (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
+              FROM visible
+              CROSS JOIN LATERAL (
+                SELECT pt FROM (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
+                WHERE NOT ST_Covers(!bbox!, pt)
+              ) AS ep
+              WHERE NOT fully_inside
           UNION
             SELECT
                 n.osm_id,
@@ -1892,11 +1886,11 @@ Layer:
                 n.highway,
                 n.ref,
                 n.next_pt AS pt,
-                TRUE AS include,
                 n.expand
               FROM walked w
               JOIN LATERAL (
-                SELECT c.*, (c.candidate_count = 1) AS expand
+                SELECT c.osm_id, c.way, c.layer, c.highway, c.ref, c.next_pt,
+                       (c.candidate_count = 1) AS expand
                   FROM (
                     SELECT c.*, count(*) OVER () AS candidate_count
                       FROM (
@@ -1914,10 +1908,7 @@ Layer:
                               ELSE ST_StartPoint(l.way)
                             END AS next_pt
                           FROM planet_osm_line l
-                          WHERE CASE
-                                  WHEN w.osm_id IS NULL THEN NOT ST_CoveredBy(l.way, w.way)
-                                  ELSE l.osm_id <> w.osm_id
-                                END
+                          WHERE l.osm_id <> w.osm_id
                             AND (l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR l.aeroway IN ('runway', 'taxiway'))
                             AND COALESCE(l.layer, 0) = w.layer
                             AND COALESCE(
@@ -1925,12 +1916,13 @@ Layer:
                                   CASE WHEN l.aeroway IN ('runway', 'taxiway') THEN l.aeroway END
                                 ) = w.highway
                             AND l.ref = w.ref
-                            AND l.way && w.pt
+                            AND l.way && ST_Expand(w.pt, 0)  -- ST_Expand(point,0) returns a degenerate polygon; GIST && is ~2x faster against a polygon than against a raw point even though the bbox is identical.
                             AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
                           ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
                   ) AS c
+                  WHERE NOT (c.way && !bbox!)   -- only insert invisibles
               ) AS n ON w.expand
         ),
         raw AS (
@@ -1949,7 +1941,6 @@ Layer:
                 highway,
                 ref
               FROM walked
-              WHERE include
         ),
         merged AS (
             SELECT
@@ -2025,19 +2016,23 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        -- Merged-name layer for issue #951: visible ways with both endpoints
-        -- inside the bbox are merged into frontier seeds; ways that cross the
-        -- bbox edge are kept as one-way seeds to avoid collapsing through
-        -- off-bbox junctions (the merge would otherwise hide a real fork
-        -- sitting just outside the bbox). Each seed is then recursively
-        -- extended along exact endpoints while the rendering-relevant
-        -- signature (highway, tunnel, construction, name, layer) stays
-        -- identical. At forks, candidate ways are kept as non-expanding
-        -- blockers so the final ST_LineMerge still sees the branch degree and
-        -- does not merge through it. _link is kept in the recursive signature
-        -- as highway_raw to avoid pulling a motorway through its offramp; it
-        -- is stripped only at SELECT time for the symbolizer. ST_Dump then
-        -- unnests disjoint pieces, so each piece keeps its own label.
+        -- Merged-name layer for issue #951: ways crossing the bbox edge
+        -- ("branch-2") are walked from their off-bbox endpoints to discover
+        -- same-signature continuations outside. Fully-inside ways are NOT
+        -- walked: by construction any way meeting a fully-inside way at an
+        -- endpoint also has way && bbox, so it is already in `visible`, and
+        -- in-bbox fork detection falls out of the final ST_LineMerge over
+        -- `raw`. At each recursion step we count all candidates (for fork
+        -- detection via candidate_count = 1) but only insert invisibles
+        -- (NOT (way && bbox)) into `walked` -- visible ways already appear
+        -- in `raw` via `visible`, so re-adding them just propagates walks
+        -- into territory we already cover. At forks (count > 1) candidates
+        -- become non-expanding blockers so the final ST_LineMerge still
+        -- sees the branch degree and does not merge through. _link is kept
+        -- in the recursive signature as highway_raw to avoid pulling a
+        -- motorway through its offramp; it is stripped only at SELECT time
+        -- for the symbolizer. ST_Dump unnests disjoint pieces so each keeps
+        -- its own label.
         --
         -- The one-way arrows live in a separate, unmerged layer
         -- (roads-direction-arrows) because ST_LineMerge does not preserve
@@ -2060,28 +2055,12 @@ Layer:
                                 'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
                 AND name IS NOT NULL
         ),
-        seed_geoms AS (
-            SELECT
-                (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
-                layer,
-                highway_raw,
-                highway,
-                tunnel,
-                construction,
-                name
-              FROM visible
-              WHERE fully_inside
-              GROUP BY highway_raw, highway, tunnel, construction, name, layer
-          UNION ALL
-            SELECT way, layer, highway_raw, highway, tunnel, construction, name
-              FROM visible
-              WHERE NOT fully_inside
-        ),
         walked AS (
+            -- Base: each crossing way, only its off-bbox endpoint(s)
             SELECT
-                NULL::bigint AS osm_id,
+                osm_id,
                 way,
-                NULL::integer AS z_order,
+                z_order,
                 layer,
                 highway_raw,
                 highway,
@@ -2089,10 +2068,13 @@ Layer:
                 construction,
                 name,
                 pt,
-                FALSE AS include,
                 TRUE AS expand
-              FROM seed_geoms
-              CROSS JOIN LATERAL (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
+              FROM visible
+              CROSS JOIN LATERAL (
+                SELECT pt FROM (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
+                WHERE NOT ST_Covers(!bbox!, pt)
+              ) AS ep
+              WHERE NOT fully_inside
           UNION
             SELECT
                 n.osm_id,
@@ -2105,11 +2087,12 @@ Layer:
                 n.construction,
                 n.name,
                 n.next_pt AS pt,
-                TRUE AS include,
                 n.expand
               FROM walked w
               JOIN LATERAL (
-                SELECT c.*, (c.candidate_count = 1) AS expand
+                SELECT c.osm_id, c.way, c.z_order, c.layer, c.highway_raw, c.highway,
+                       c.tunnel, c.construction, c.name, c.next_pt,
+                       (c.candidate_count = 1) AS expand
                   FROM (
                     SELECT c.*, count(*) OVER () AS candidate_count
                       FROM (
@@ -2128,21 +2111,19 @@ Layer:
                               ELSE ST_StartPoint(l.way)
                             END AS next_pt
                           FROM planet_osm_line l
-                          WHERE CASE
-                                  WHEN w.osm_id IS NULL THEN NOT ST_CoveredBy(l.way, w.way)
-                                  ELSE l.osm_id <> w.osm_id
-                                END
+                          WHERE l.osm_id <> w.osm_id
                             AND l.highway = w.highway_raw
                             AND COALESCE(l.layer, 0) = w.layer
                             AND l.construction IS NOT DISTINCT FROM w.construction
                             AND l.name = w.name
                             AND (CASE WHEN (l.tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR l.covered = 'yes') THEN 'yes' ELSE 'no' END) = w.tunnel
-                            AND l.way && w.pt
+                            AND l.way && ST_Expand(w.pt, 0)  -- ST_Expand(point,0) returns a degenerate polygon; GIST && is ~2x faster against a polygon than against a raw point even though the bbox is identical.
                             AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
                           ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
                   ) AS c
+                  WHERE NOT (c.way && !bbox!)   -- only insert invisibles
               ) AS n ON w.expand
         ),
         raw AS (
@@ -2169,7 +2150,6 @@ Layer:
                 construction,
                 name
               FROM walked
-              WHERE include
         )
         SELECT
             (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
@@ -2297,32 +2277,22 @@ Layer:
                 AND highway IN ('unclassified', 'residential', 'track')
                 AND ref IS NOT NULL
         ),
-        seed_geoms AS (
-            SELECT
-                (ST_Dump(ST_LineMerge(ST_Collect(way ORDER BY osm_id)))).geom AS way,
-                layer,
-                highway,
-                ref
-              FROM visible
-              WHERE fully_inside
-              GROUP BY highway, ref, layer
-          UNION ALL
-            SELECT way, layer, highway, ref
-              FROM visible
-              WHERE NOT fully_inside
-        ),
         walked AS (
+            -- Base: each crossing way, only its off-bbox endpoint(s)
             SELECT
-                NULL::bigint AS osm_id,
+                osm_id,
                 way,
                 layer,
                 highway,
                 ref,
                 pt,
-                FALSE AS include,
                 TRUE AS expand
-              FROM seed_geoms
-              CROSS JOIN LATERAL (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
+              FROM visible
+              CROSS JOIN LATERAL (
+                SELECT pt FROM (VALUES (ST_StartPoint(way)), (ST_EndPoint(way))) AS ep(pt)
+                WHERE NOT ST_Covers(!bbox!, pt)
+              ) AS ep
+              WHERE NOT fully_inside
           UNION
             SELECT
                 n.osm_id,
@@ -2331,11 +2301,11 @@ Layer:
                 n.highway,
                 n.ref,
                 n.next_pt AS pt,
-                TRUE AS include,
                 n.expand
               FROM walked w
               JOIN LATERAL (
-                SELECT c.*, (c.candidate_count = 1) AS expand
+                SELECT c.osm_id, c.way, c.layer, c.highway, c.ref, c.next_pt,
+                       (c.candidate_count = 1) AS expand
                   FROM (
                     SELECT c.*, count(*) OVER () AS candidate_count
                       FROM (
@@ -2350,19 +2320,17 @@ Layer:
                               ELSE ST_StartPoint(l.way)
                             END AS next_pt
                           FROM planet_osm_line l
-                          WHERE CASE
-                                  WHEN w.osm_id IS NULL THEN NOT ST_CoveredBy(l.way, w.way)
-                                  ELSE l.osm_id <> w.osm_id
-                                END
+                          WHERE l.osm_id <> w.osm_id
                             AND l.highway = w.highway
                             AND COALESCE(l.layer, 0) = w.layer
                             AND l.ref = w.ref
-                            AND l.way && w.pt
+                            AND l.way && ST_Expand(w.pt, 0)  -- ST_Expand(point,0) returns a degenerate polygon; GIST && is ~2x faster against a polygon than against a raw point even though the bbox is identical.
                             AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
                           ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
                   ) AS c
+                  WHERE NOT (c.way && !bbox!)   -- only insert invisibles
               ) AS n ON w.expand
         ),
         raw AS (
@@ -2381,7 +2349,6 @@ Layer:
                 highway,
                 ref
               FROM walked
-              WHERE include
         ),
         merged AS (
             SELECT
