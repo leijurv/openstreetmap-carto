@@ -15,6 +15,16 @@ line:
     where: waterway = 'river'
   waterway:
     where: waterway IN ('river', 'canal', 'stream', 'drain', 'ditch')
+  # Endpoint coordinate indexes accelerate the road-network ST_LineMerge CTEs
+  # which walk same-signature ways past the bbox by exact endpoint match.
+  startpt:
+    using: BTREE
+    function: ST_X(ST_StartPoint(way)), ST_Y(ST_StartPoint(way))
+    where: highway IS NOT NULL OR aeroway IS NOT NULL
+  endpt:
+    using: BTREE
+    function: ST_X(ST_EndPoint(way)), ST_Y(ST_EndPoint(way))
+    where: highway IS NOT NULL OR aeroway IS NOT NULL
 polygon:
   # The polygon table is by far the largest, and generally the slowest
   name:

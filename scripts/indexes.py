@@ -19,13 +19,13 @@ args = parser.parse_args()
 
 separator = '\0' if args.null else '\n'
 
-def index_statement(table, name, function, conditions=None, concurrent=False,notexist=False, fillfactor=None):
+def index_statement(table, name, function, conditions=None, concurrent=False,notexist=False, fillfactor=None, using='GIST'):
     options = ' CONCURRENTLY' if concurrent else ''
     options += ' IF NOT EXISTS' if notexist else ''
     storage = '' if fillfactor is None else f' WITH (fillfactor={fillfactor})'
     where = '' if conditions is None else f' WHERE {conditions}'
 
-    return f'CREATE INDEX{options} planet_osm_{table}_{name} ON planet_osm_{table} USING GIST ({function}){storage}{where};'.replace('\n', ' ')
+    return f'CREATE INDEX{options} planet_osm_{table}_{name} ON planet_osm_{table} USING {using} ({function}){storage}{where};'.replace('\n', ' ')
 
 def parse(index_function):
     with open(os.path.join(os.path.dirname(__file__), '../indexes.yml')) as yaml_file:
@@ -33,24 +33,24 @@ def parse(index_function):
 
     for table, data in sorted(indexes.items()):
         for name, definition in sorted(data.items()):
-            print(index_function(table, name, definition.get("function", "way"), definition["where"]), end=separator)
+            print(index_function(table, name, definition.get("function", "way"), definition["where"], definition.get("using", "GIST")), end=separator)
 
 # The same as parse, but for osm2pgsql-built indexes
 def osm2pgsql_parse(index_function):
-    print(index_function('point', 'way_idx', 'way', None), end=separator)
-    print(index_function('line', 'way_idx', 'way', None), end=separator)
-    print(index_function('polygon', 'way_idx', 'way', None), end=separator)
-    print(index_function('roads', 'way_idx', 'way', None), end=separator)
+    print(index_function('point', 'way_idx', 'way', None, 'GIST'), end=separator)
+    print(index_function('line', 'way_idx', 'way', None, 'GIST'), end=separator)
+    print(index_function('polygon', 'way_idx', 'way', None, 'GIST'), end=separator)
+    print(index_function('roads', 'way_idx', 'way', None, 'GIST'), end=separator)
 
-def generate_statement(table, name, function, where):
-    return index_statement(table, name, function, where, args.concurrent, args.notexist, args.fillfactor)
+def generate_statement(table, name, function, where, using):
+    return index_statement(table, name, function, where, args.concurrent, args.notexist, args.fillfactor, using)
 
-def generate_reindex_statement(table, name, function, where):
+def generate_reindex_statement(table, name, function, where, using):
     if not args.concurrent:
         return f'REINDEX planet_osm_{table}_{name};'
     else:
         # Rebuilding indexes concurrently requires making a new index, dropping the old one, and renaming.
-        return f'ALTER INDEX planet_osm_{table}_{name} RENAME TO planet_osm_{table}_{name}_old; {generate_statement(table, name, function, where)} + DROP INDEX planet_osm_{table}_{name}_old;'
+        return f'ALTER INDEX planet_osm_{table}_{name} RENAME TO planet_osm_{table}_{name}_old; {generate_statement(table, name, function, where, using)} + DROP INDEX planet_osm_{table}_{name}_old;'
 
 print('-- These are indexes for rendering performance with OpenStreetMap Carto.', end=separator)
 print('-- This file is generated with {}'.format(' '.join(sys.argv)), end=separator)

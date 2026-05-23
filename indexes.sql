@@ -1,8 +1,10 @@
 -- These are indexes for rendering performance with OpenStreetMap Carto.
 -- This file is generated with scripts/indexes.py
+CREATE INDEX planet_osm_line_endpt ON planet_osm_line USING BTREE (ST_X(ST_EndPoint(way)), ST_Y(ST_EndPoint(way))) WHERE highway IS NOT NULL OR aeroway IS NOT NULL;
 CREATE INDEX planet_osm_line_ferry ON planet_osm_line USING GIST (way) WHERE route = 'ferry' AND osm_id > 0;
 CREATE INDEX planet_osm_line_label ON planet_osm_line USING GIST (way) WHERE name IS NOT NULL OR ref IS NOT NULL;
 CREATE INDEX planet_osm_line_river ON planet_osm_line USING GIST (way) WHERE waterway = 'river';
+CREATE INDEX planet_osm_line_startpt ON planet_osm_line USING BTREE (ST_X(ST_StartPoint(way)), ST_Y(ST_StartPoint(way))) WHERE highway IS NOT NULL OR aeroway IS NOT NULL;
 CREATE INDEX planet_osm_line_waterway ON planet_osm_line USING GIST (way) WHERE waterway IN ('river', 'canal', 'stream', 'drain', 'ditch');
 CREATE INDEX planet_osm_point_place ON planet_osm_point USING GIST (way) WHERE place IS NOT NULL AND name IS NOT NULL;
 CREATE INDEX planet_osm_polygon_admin ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL AND boundary = 'administrative' AND admin_level IN ('0', '1', '2', '3', '4');

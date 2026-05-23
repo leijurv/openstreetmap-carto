@@ -1904,7 +1904,7 @@ Layer:
                             ) AS highway,
                             l.ref,
                             CASE
-                              WHEN ST_Equals(ST_StartPoint(l.way), w.pt) THEN ST_EndPoint(l.way)
+                              WHEN ST_X(ST_StartPoint(l.way)) = ST_X(w.pt) AND ST_Y(ST_StartPoint(l.way)) = ST_Y(w.pt) THEN ST_EndPoint(l.way)
                               ELSE ST_StartPoint(l.way)
                             END AS next_pt
                           FROM planet_osm_line l
@@ -1916,8 +1916,11 @@ Layer:
                                   CASE WHEN l.aeroway IN ('runway', 'taxiway') THEN l.aeroway END
                                 ) = w.highway
                             AND l.ref = w.ref
-                            AND l.way && ST_Expand(w.pt, 0)  -- ST_Expand(point,0) returns a degenerate polygon; GIST && is ~2x faster against a polygon than against a raw point even though the bbox is identical.
-                            AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
+                            -- Coordinate-extracted form so the planner uses the btree
+                            -- (ST_X, ST_Y) endpoint indexes; ~10x faster than ST_Equals via
+                            -- way_idx, which retrieves ~100 bbox false positives per lookup.
+                            AND ((ST_X(ST_StartPoint(l.way)) = ST_X(w.pt) AND ST_Y(ST_StartPoint(l.way)) = ST_Y(w.pt))
+                              OR (ST_X(ST_EndPoint(l.way))   = ST_X(w.pt) AND ST_Y(ST_EndPoint(l.way))   = ST_Y(w.pt)))
                           ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
@@ -2107,7 +2110,7 @@ Layer:
                             l.construction,
                             l.name,
                             CASE
-                              WHEN ST_Equals(ST_StartPoint(l.way), w.pt) THEN ST_EndPoint(l.way)
+                              WHEN ST_X(ST_StartPoint(l.way)) = ST_X(w.pt) AND ST_Y(ST_StartPoint(l.way)) = ST_Y(w.pt) THEN ST_EndPoint(l.way)
                               ELSE ST_StartPoint(l.way)
                             END AS next_pt
                           FROM planet_osm_line l
@@ -2117,8 +2120,11 @@ Layer:
                             AND l.construction IS NOT DISTINCT FROM w.construction
                             AND l.name = w.name
                             AND (CASE WHEN (l.tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR l.covered = 'yes') THEN 'yes' ELSE 'no' END) = w.tunnel
-                            AND l.way && ST_Expand(w.pt, 0)  -- ST_Expand(point,0) returns a degenerate polygon; GIST && is ~2x faster against a polygon than against a raw point even though the bbox is identical.
-                            AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
+                            -- Coordinate-extracted form so the planner uses the btree
+                            -- (ST_X, ST_Y) endpoint indexes; ~10x faster than ST_Equals via
+                            -- way_idx, which retrieves ~100 bbox false positives per lookup.
+                            AND ((ST_X(ST_StartPoint(l.way)) = ST_X(w.pt) AND ST_Y(ST_StartPoint(l.way)) = ST_Y(w.pt))
+                              OR (ST_X(ST_EndPoint(l.way))   = ST_X(w.pt) AND ST_Y(ST_EndPoint(l.way))   = ST_Y(w.pt)))
                           ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
@@ -2316,7 +2322,7 @@ Layer:
                             CASE WHEN l.highway IN ('unclassified', 'residential', 'track') THEN l.highway END AS highway,
                             l.ref,
                             CASE
-                              WHEN ST_Equals(ST_StartPoint(l.way), w.pt) THEN ST_EndPoint(l.way)
+                              WHEN ST_X(ST_StartPoint(l.way)) = ST_X(w.pt) AND ST_Y(ST_StartPoint(l.way)) = ST_Y(w.pt) THEN ST_EndPoint(l.way)
                               ELSE ST_StartPoint(l.way)
                             END AS next_pt
                           FROM planet_osm_line l
@@ -2324,8 +2330,11 @@ Layer:
                             AND l.highway = w.highway
                             AND COALESCE(l.layer, 0) = w.layer
                             AND l.ref = w.ref
-                            AND l.way && ST_Expand(w.pt, 0)  -- ST_Expand(point,0) returns a degenerate polygon; GIST && is ~2x faster against a polygon than against a raw point even though the bbox is identical.
-                            AND (ST_Equals(ST_StartPoint(l.way), w.pt) OR ST_Equals(ST_EndPoint(l.way), w.pt))
+                            -- Coordinate-extracted form so the planner uses the btree
+                            -- (ST_X, ST_Y) endpoint indexes; ~10x faster than ST_Equals via
+                            -- way_idx, which retrieves ~100 bbox false positives per lookup.
+                            AND ((ST_X(ST_StartPoint(l.way)) = ST_X(w.pt) AND ST_Y(ST_StartPoint(l.way)) = ST_Y(w.pt))
+                              OR (ST_X(ST_EndPoint(l.way))   = ST_X(w.pt) AND ST_Y(ST_EndPoint(l.way))   = ST_Y(w.pt)))
                           ORDER BY l.osm_id
                           LIMIT 2
                       ) AS c
