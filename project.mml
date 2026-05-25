@@ -71,7 +71,7 @@ Layer:
                                                     'meadow', 'grass', 'village_green', 'vineyard', 'orchard') THEN landuse END)) AS landuse,
               ('natural_' || (CASE WHEN "natural" IN ('wood', 'sand', 'scree', 'shingle', 'bare_rock', 'heath', 'grassland', 'scrub') THEN "natural" END)) AS "natural",
               ('wetland_' || (CASE WHEN "natural" IN ('wetland', 'mud') THEN (CASE WHEN "natural" IN ('mud') THEN "natural" ELSE tags->'wetland' END) END)) AS wetland,
-              way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+              carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
               way_area
             FROM planet_osm_polygon
             WHERE (landuse IN ('forest', 'farmland', 'residential', 'commercial', 'retail', 'industrial', 'meadow', 'grass', 'village_green', 'vineyard', 'orchard')
@@ -119,7 +119,7 @@ Layer:
               ('highway_' || (CASE WHEN highway IN ('services', 'rest_area') THEN highway END)) AS highway,
               ('railway_' || (CASE WHEN railway = 'station' THEN railway END)) AS railway,
               CASE WHEN religion IN ('christian', 'jewish', 'muslim') THEN religion ELSE 'INT-generic'::text END AS religion,
-              way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+              carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
               CASE WHEN building = 'no' OR building IS NULL THEN 'no' ELSE 'yes' END AS is_building,
               way_area
             FROM planet_osm_polygon
@@ -178,9 +178,7 @@ Layer:
         (SELECT
             way,
             waterway,
-            CASE WHEN tags->'intermittent' IN ('yes')
-              OR tags->'seasonal' IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
-              THEN 'yes' ELSE 'no' END AS int_intermittent
+            carto_water_intermittent(tags->'intermittent', tags->'seasonal') AS int_intermittent
           FROM planet_osm_line
           WHERE waterway = 'river'
         ) AS water_lines_low_zoom
@@ -200,12 +198,8 @@ Layer:
           (SELECT -- This subselect allows sorting on the int_tunnel column
               way,
               waterway,
-              CASE WHEN tags->'intermittent' IN ('yes')
-                OR tags->'seasonal' IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
-                THEN 'yes' ELSE 'no' END AS int_intermittent,
-              CASE WHEN tunnel IN ('yes', 'culvert') 
-                OR waterway = 'canal' AND tunnel = 'flooded'
-                THEN 'yes' ELSE 'no' END AS int_tunnel,
+              carto_water_intermittent(tags->'intermittent', tags->'seasonal') AS int_intermittent,
+              carto_waterway_int_tunnel(tunnel, waterway) AS int_tunnel,
               COALESCE(layer,0) AS layernotnull
             FROM planet_osm_line
             WHERE waterway IN ('river', 'canal', 'stream', 'drain', 'ditch')
@@ -228,7 +222,7 @@ Layer:
             "natural",
             waterway,
             landuse,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             CASE WHEN tags->'intermittent' IN ('yes')
               OR tags->'seasonal' IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
               OR tags->'basin' IN ('detention', 'infiltration')
@@ -289,7 +283,7 @@ Layer:
               END AS int_wetland,
             landuse,
             tags->'leaf_type' AS leaf_type,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
           WHERE ("natural" IN ('mud', 'wetland', 'wood', 'beach', 'shoal', 'reef', 'scrub') OR landuse IN ('forest', 'salt_pond'))
             AND building IS NULL
@@ -469,50 +463,34 @@ Layer:
                 way,
                 'highway_' || (CASE WHEN highway = 'path' THEN carto_path_type(bicycle, horse) ELSE highway END) AS feature,
                 tracktype,
-                CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                      'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-                     WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                                      'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-                END AS int_surface,
+                carto_int_surface(surface) AS int_surface,
                 carto_highway_int_access(highway, access, foot, bicycle, horse, tags->'motorcar', tags->'motor_vehicle', tags->'vehicle') AS int_access,
                 construction,
-                CASE
-                  WHEN service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure IN ('slipway') THEN 'INT-minor'::text
-                  ELSE 'INT-normal'::text
-                END AS service,
-                CASE
-                  WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link') THEN 'yes'
-                  ELSE 'no'
-                END AS link,
+                carto_service_class(service, leisure)::text AS service,
+                CASE WHEN carto_is_link(highway) THEN 'yes' ELSE 'no' END AS link,
                 NULL AS preserved,
                 COALESCE(layer,0) AS layernotnull,
                 osm_id,
                 z_order
               FROM planet_osm_line
-              WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
+              WHERE (carto_is_tunnel(tunnel) OR covered = 'yes')
                 AND highway IS NOT NULL -- end of road select
             UNION ALL
             SELECT
                 way,
-                'railway_' || (CASE
-                                 WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
-                                 ELSE railway END) AS feature,
+                'railway_' || carto_railway_kind(railway, service) AS feature,
                 tracktype,
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
                 NULL AS service,
                 NULL AS link,
-                CASE
-                  WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
-                  ELSE 'no'
-                END AS preserved,
+                carto_yes_no(tags->'railway:preserved') AS preserved,
                 COALESCE(layer,0) AS layernotnull,
                 osm_id,
                 z_order
               FROM planet_osm_line
-              WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
+              WHERE (carto_is_tunnel(tunnel) OR covered = 'yes')
                 AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
             ) AS features
           ORDER BY
@@ -551,7 +529,7 @@ Layer:
             way,
             landuse,
             military,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
           WHERE (landuse = 'military'
             OR military = 'danger_area')
@@ -638,16 +616,9 @@ Layer:
                 -- Valid line geometry requires at least two points that are NOT identical, therefore moving them slightly.
                 ST_MakeLine(ST_Translate(p.way, -0.0001, -0.0001), ST_Translate(p.way, 0.0001, 0.0001)) AS way,
                 p.highway AS type,
-                CASE WHEN l.surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                     'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-                  WHEN l.surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                  'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-                END AS int_surface,
+                carto_int_surface(l.surface) AS int_surface,
                 l.highway AS int_tc_type,
-                CASE WHEN l.service IN ('parking_aisle', 'drive-through', 'driveway')
-                  THEN 'INT-minor'
-                  ELSE 'INT-normal'
-                END AS int_tc_service,
+                carto_service_class(l.service, NULL) AS int_tc_service,
                 l.z_order AS z_order
               FROM planet_osm_point p
                 JOIN planet_osm_line l
@@ -676,14 +647,14 @@ Layer:
               'highway_' || (CASE WHEN highway IN ('pedestrian', 'footway', 'service', 'platform') THEN highway END)),
               ('railway_' || (CASE WHEN (railway IN ('platform')
                               AND (tags->'location' NOT IN ('underground') OR (tags->'location') IS NULL)
-                              AND (tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector') OR tunnel IS NULL))
+                              AND (NOT carto_is_tunnel(tunnel)))
                               THEN railway END))
             ) AS feature
           FROM planet_osm_polygon
           WHERE highway IN ('pedestrian', 'footway', 'service', 'platform')
             OR (railway IN ('platform')
                 AND (tags->'location' NOT IN ('underground') OR (tags->'location') IS NULL)
-                AND (tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector') OR tunnel IS NULL))
+                AND (NOT carto_is_tunnel(tunnel)))
           ORDER BY COALESCE(layer,0), way_area DESC
         ) AS highway_area_casing
     properties:
@@ -718,54 +689,38 @@ Layer:
                 way,
                 'highway_' || (CASE WHEN highway = 'path' THEN carto_path_type(bicycle, horse) ELSE highway END) AS feature,
                 tracktype,
-                CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                      'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-                     WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                                      'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-                END AS int_surface,
+                carto_int_surface(surface) AS int_surface,
                 carto_highway_int_access(highway, access, foot, bicycle, horse, tags->'motorcar', tags->'motor_vehicle', tags->'vehicle') AS int_access,
                 construction,
-                CASE
-                  WHEN service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure IN ('slipway') THEN 'INT-minor'::text
-                  ELSE 'INT-normal'::text
-                END AS service,
-                CASE
-                  WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link') THEN 'yes'
-                  ELSE 'no'
-                END AS link,
+                carto_service_class(service, leisure)::text AS service,
+                CASE WHEN carto_is_link(highway) THEN 'yes' ELSE 'no' END AS link,
                 NULL AS preserved,
                 COALESCE(layer,0) AS layernotnull,
                 osm_id,
                 z_order
               FROM planet_osm_line
-              WHERE (tunnel IS NULL OR NOT tunnel IN ('yes', 'building_passage', 'avalanche_protector'))
+              WHERE (NOT carto_is_tunnel(tunnel))
                 AND (covered IS NULL OR NOT covered = 'yes')
-                AND (bridge IS NULL OR NOT bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct'))
+                AND NOT carto_is_bridge(bridge)
                 AND highway IS NOT NULL -- end of road select
             UNION ALL
             SELECT
                 way,
-                'railway_' || (CASE
-                                 WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
-                                 ELSE railway END) AS feature,
+                'railway_' || carto_railway_kind(railway, service) AS feature,
                 tracktype,
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
                 NULL AS service,
                 NULL AS link,
-                CASE
-                  WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
-                  ELSE 'no'
-                END AS preserved,
+                carto_yes_no(tags->'railway:preserved') AS preserved,
                 COALESCE(layer,0) AS layernotnull,
                 osm_id,
                 z_order
               FROM planet_osm_line
-              WHERE (tunnel IS NULL OR NOT tunnel IN ('yes', 'building_passage', 'avalanche_protector'))
+              WHERE (NOT carto_is_tunnel(tunnel))
                 AND (covered IS NULL OR NOT covered = 'yes' OR railway IN ('platform'))
-                AND (bridge IS NULL OR NOT bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct'))
+                AND NOT carto_is_bridge(bridge)
                 AND (railway NOT IN ('platform') OR (tags->'location' NOT IN ('underground')) OR (tags->'location') IS NULL)
                 AND railway IS NOT NULL -- end of rail select
             ) AS features
@@ -794,21 +749,16 @@ Layer:
                                                     'platform', 'services') THEN highway END)),
               ('railway_' || (CASE WHEN (railway IN ('platform')
                               AND (tags->'location' NOT IN ('underground') OR (tags->'location') IS NULL)
-                              AND (tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector') OR tunnel IS NULL))
+                              AND (NOT carto_is_tunnel(tunnel)))
                               THEN railway END)),
               (('aeroway_' || CASE WHEN aeroway IN ('runway', 'taxiway', 'helipad') THEN aeroway ELSE NULL END))
             ) AS feature,
-            CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                  'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-              WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                                  'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-              ELSE NULL
-            END AS int_surface
+            carto_int_surface(surface) AS int_surface
           FROM planet_osm_polygon
           WHERE highway IN ('pedestrian', 'footway', 'service', 'living_street', 'platform', 'services')
             OR (railway IN ('platform')
                 AND (tags->'location' NOT IN ('underground') OR (tags->'location') IS NULL)
-                AND (tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector') OR tunnel IS NULL))
+                AND (NOT carto_is_tunnel(tunnel)))
             OR aeroway IN ('runway', 'taxiway', 'helipad')
           ORDER BY COALESCE(layer,0), way_area desc
         ) AS highway_area_fill
@@ -841,21 +791,17 @@ Layer:
         (SELECT
             way,
             COALESCE(
-              ('highway_' || (CASE WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link')
-                                     THEN substr(highway, 0, length(highway)-4) ELSE highway end)),
+              ('highway_' || (CASE WHEN carto_is_link(highway)
+                                     THEN substr(highway, 0, length(highway)-4) ELSE highway END)),
               ('railway_' || railway)
             ) AS feature,
-            CASE WHEN tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes' THEN 'yes' ELSE 'no' END AS int_tunnel,
-            CASE WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link') THEN 'yes' ELSE 'no' END AS link,
-            CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                  'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-              WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                                  'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-            END AS int_surface
+            CASE WHEN carto_is_tunnel(tunnel) OR covered = 'yes' THEN 'yes' ELSE 'no' END AS int_tunnel,
+            CASE WHEN carto_is_link(highway) THEN 'yes' ELSE 'no' END AS link,
+            carto_int_surface(surface) AS int_surface
           FROM planet_osm_roads
           WHERE highway IS NOT NULL
             OR (railway IN ('rail', 'light_rail', 'funicular', 'narrow_gauge')
-              AND (tags->'railway:preserved' IS NULL OR tags->'railway:preserved' != 'yes')
+              AND carto_yes_no(tags->'railway:preserved') = 'no'
               AND (service IS NULL OR service NOT IN ('spur', 'siding', 'yard')))
           ORDER BY
             z_order
@@ -894,50 +840,34 @@ Layer:
                 way,
                 'highway_' || (CASE WHEN highway = 'path' THEN carto_path_type(bicycle, horse) ELSE highway END) AS feature,
                 tracktype,
-                CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                      'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-                     WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                                      'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-                END AS int_surface,
+                carto_int_surface(surface) AS int_surface,
                 carto_highway_int_access(highway, access, foot, bicycle, horse, tags->'motorcar', tags->'motor_vehicle', tags->'vehicle') AS int_access,
                 construction,
-                CASE
-                  WHEN service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure IN ('slipway') THEN 'INT-minor'::text
-                  ELSE 'INT-normal'::text
-                END AS service,
-                CASE
-                  WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link') THEN 'yes'
-                  ELSE 'no'
-                END AS link,
+                carto_service_class(service, leisure)::text AS service,
+                CASE WHEN carto_is_link(highway) THEN 'yes' ELSE 'no' END AS link,
                 NULL AS preserved,
                 COALESCE(layer,0) AS layernotnull,
                 osm_id,
                 z_order
               FROM planet_osm_line
-              WHERE bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct')
+              WHERE carto_is_bridge(bridge)
                 AND highway IS NOT NULL -- end of road select
             UNION ALL
             SELECT
                 way,
-                'railway_' || (CASE
-                                 WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
-                                 ELSE railway END) AS feature,
+                'railway_' || carto_railway_kind(railway, service) AS feature,
                 tracktype,
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
                 NULL AS service,
                 NULL AS link,
-                CASE
-                  WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
-                  ELSE 'no'
-                END AS preserved,
+                carto_yes_no(tags->'railway:preserved') AS preserved,
                 COALESCE(layer,0) AS layernotnull,
                 osm_id,
                 z_order
               FROM planet_osm_line
-              WHERE bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct')
+              WHERE carto_is_bridge(bridge)
                 AND railway IS NOT NULL -- end of rail select
             ) AS features
           ORDER BY
@@ -961,20 +891,14 @@ Layer:
         (SELECT
             way,
             aeroway,
-            bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct') AS bridge,
-            CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                  'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
-              WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
-                                  'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
-              ELSE NULL
-            END AS int_surface
+            CASE WHEN bridge IS NULL THEN NULL ELSE carto_is_bridge(bridge) END AS bridge,
+            carto_int_surface(surface) AS int_surface
           FROM planet_osm_line
           WHERE aeroway IN ('runway', 'taxiway')
           ORDER BY
             bridge NULLS FIRST,
             CASE WHEN aeroway = 'runway' THEN 1 ELSE 0 END,
-            CASE WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
-                                  'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 0 ELSE 1 END
+            CASE WHEN carto_int_surface(surface) = 'unpaved' THEN 0 ELSE 1 END
         ) AS aeroways
     properties:
       cache-features: true
@@ -988,12 +912,8 @@ Layer:
         (SELECT
             way,
             waterway,
-            CASE WHEN tags->'intermittent' IN ('yes')
-              OR tags->'seasonal' IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
-              THEN 'yes' ELSE 'no' END AS int_intermittent,
-            CASE WHEN tunnel IN ('yes', 'culvert') 
-              OR waterway = 'canal' AND tunnel = 'flooded'
-              THEN 'yes' ELSE 'no' END AS int_tunnel,
+            carto_water_intermittent(tags->'intermittent', tags->'seasonal') AS int_intermittent,
+            carto_waterway_int_tunnel(tunnel, waterway) AS int_tunnel,
             'yes' AS bridge
           FROM planet_osm_line
           WHERE waterway IN ('river', 'canal', 'stream', 'drain', 'ditch')
@@ -1196,7 +1116,7 @@ Layer:
       table: |-
         (SELECT
             way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             tourism
           FROM planet_osm_polygon
           WHERE tourism = 'theme_park'
@@ -1214,11 +1134,10 @@ Layer:
             way,
             boundary,
             tags->'protect_class' AS protect_class,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
-          WHERE (boundary IN ('aboriginal_lands', 'national_park')
-                 OR leisure = 'nature_reserve'
-                 OR (boundary = 'protected_area' AND tags->'protect_class' IN ('1','1a','1b','2','3','4','5','6')))
+          WHERE (carto_is_protected_area(boundary, tags->'protect_class')
+                 OR leisure = 'nature_reserve')
             AND building IS NULL
             AND way_area > 1*!pixel_width!::real*!pixel_height!::real
         ) AS protected_areas
@@ -1259,15 +1178,15 @@ Layer:
               FROM ST_Dump(ST_Transform(way,4326))
               ORDER BY ST_Area(geom::geography) DESC
               LIMIT 1) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             name
           FROM planet_osm_polygon
           WHERE way && !bbox!
             AND name IS NOT NULL
             AND boundary = 'administrative'
             AND admin_level = '2'
-            AND way_area > 100*POW(!scale_denominator!*0.001*0.28,2)
-            AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 100*carto_pixel_area(!scale_denominator!)
+            AND way_area < 4000000*carto_pixel_area(!scale_denominator!)
             AND osm_id < 0
           ORDER BY way_area DESC
         ) AS country_names
@@ -1303,7 +1222,7 @@ Layer:
       table: |-
         (SELECT
             ST_PointOnSurface(way) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             name,
             admin_level,
             ref
@@ -1312,8 +1231,8 @@ Layer:
             AND name IS NOT NULL
             AND boundary = 'administrative'
             AND admin_level = '4'
-            AND way_area > 3000*POW(!scale_denominator!*0.001*0.28,2)
-            AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 3000*carto_pixel_area(!scale_denominator!)
+            AND way_area < 4000000*carto_pixel_area(!scale_denominator!)
             AND osm_id < 0
           ORDER BY way_area DESC
         ) AS state_names
@@ -1419,7 +1338,7 @@ Layer:
               way_area
             FROM planet_osm_polygon
             WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
-              AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+              AND way_area < 768000*carto_pixel_area(!scale_denominator!)
           UNION ALL
           SELECT
               way,
@@ -1532,11 +1451,11 @@ Layer:
             junction,
             ref,
             name,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
           WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
             AND junction = 'yes'
-            AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area < 768000*carto_pixel_area(!scale_denominator!)
           ORDER BY way_pixels DESC NULLS LAST
         ) AS junctions
     properties:
@@ -1549,15 +1468,15 @@ Layer:
       table: |-
         (SELECT
             ST_PointOnSurface(way) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             man_made,
             name
           FROM planet_osm_polygon
           WHERE ST_PointOnSurface(way) && !bbox!
             AND name IS NOT NULL
             AND man_made = 'bridge'
-            AND way_area > 125*POW(!scale_denominator!*0.001*0.28,2)
-            AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 125*carto_pixel_area(!scale_denominator!)
+            AND way_area < 768000*carto_pixel_area(!scale_denominator!)
           ORDER BY way_area DESC
         ) AS bridge_text
     properties:
@@ -1570,7 +1489,7 @@ Layer:
       table: |-
         (SELECT
             ST_PointOnSurface(way) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             name,
             admin_level
           FROM planet_osm_polygon
@@ -1578,8 +1497,8 @@ Layer:
             AND name IS NOT NULL
             AND boundary = 'administrative'
             AND admin_level IN ('5', '6')
-            AND way_area > 12000*POW(!scale_denominator!*0.001*0.28,2)
-            AND way_area < 196000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 12000*carto_pixel_area(!scale_denominator!)
+            AND way_area < 196000*carto_pixel_area(!scale_denominator!)
             AND osm_id < 0
           ORDER BY
             admin_level,
@@ -1667,9 +1586,7 @@ Layer:
                 'military_'|| CASE WHEN military IN ('danger_area', 'bunker') THEN military END,
                 'highway_' || CASE WHEN highway IN ('services', 'rest_area', 'bus_stop', 'elevator', 'traffic_signals') THEN highway END,
                 'highway_'|| CASE WHEN tags->'ford' IN ('yes', 'stepping_stones') AND way_area IS NULL THEN 'ford' END,
-                'boundary_' || CASE WHEN boundary IN ('aboriginal_lands', 'national_park')
-                                          OR (boundary = 'protected_area' AND tags->'protect_class' IN ('1','1a','1b','2','3','4','5','6'))
-                                          THEN boundary END,
+                'boundary_' || CASE WHEN carto_is_protected_area(boundary, tags->'protect_class') THEN boundary END,
                 'leisure_' || CASE WHEN leisure IN ('nature_reserve') THEN leisure END,
                 'tourism_' || CASE WHEN tourism IN ('information') AND tags->'information' IN ('audioguide', 'board', 'guidepost', 'office', 'map', 'tactile_map', 'terminal') THEN tourism END,
                 'office' || CASE WHEN (tags->'office') IS NOT NULL AND EXISTS (SELECT 1 FROM carto_pois WHERE key = 'office' AND value = tags->'office') THEN '' END,
@@ -1686,7 +1603,7 @@ Layer:
                 'place_' || CASE WHEN place IN ('locality') AND way_area IS NULL THEN place END,
                 'golf_' || CASE WHEN tags->'golf' IN ('pin') AND way_area IS NULL THEN tags->'golf' END
               ) AS feature,
-              CASE WHEN access IN ('private', 'no', 'customers', 'permit', 'delivery') THEN 'restricted' ELSE 'yes' END AS int_access,
+              carto_poi_int_access(access) AS int_access,
               CASE
                 WHEN "natural" IN ('peak', 'volcano', 'saddle') 
                      OR tags->'mountain_pass' = 'yes' THEN
@@ -1743,7 +1660,7 @@ Layer:
               tags->'operator' AS operator,
               ref,
               way_area,
-              COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels
+              COALESCE(carto_way_pixels(way_area, !scale_denominator!), 0) AS way_pixels
             FROM
               (SELECT
                   ST_PointOnSurface(way) AS way,
@@ -1772,7 +1689,7 @@ Layer:
                   way_area
                 FROM planet_osm_polygon
                 WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
-                  AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+                  AND way_area < 768000*carto_pixel_area(!scale_denominator!)
               UNION ALL
               SELECT
                   way,
@@ -1954,7 +1871,7 @@ Layer:
       table: |-
         (SELECT
             ST_PointOnSurface(way) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             highway,
             name
           FROM planet_osm_polygon
@@ -1963,10 +1880,10 @@ Layer:
             AND (highway IN ('pedestrian', 'footway', 'service', 'living_street', 'platform')
               OR (railway IN ('platform')
                   AND (tags->'location' NOT IN ('underground') OR (tags->'location') IS NULL)
-                  AND (tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector') OR tunnel IS NULL)
+                  AND (NOT carto_is_tunnel(tunnel))
                   AND (covered NOT IN ('yes') OR covered IS NULL)))
-            AND way_area > 3000*POW(!scale_denominator!*0.001*0.28,2)
-            AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 3000*carto_pixel_area(!scale_denominator!)
+            AND way_area < 768000*carto_pixel_area(!scale_denominator!)
           ORDER BY way_area DESC
         ) AS roads_area_text_name
     properties:
@@ -1980,7 +1897,7 @@ Layer:
         (SELECT
             way,
             CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
-            CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
+            CASE WHEN (carto_is_tunnel(tunnel) OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
             construction,
             name,
             CASE
@@ -2035,22 +1952,15 @@ Layer:
       table: |-
         (SELECT
             way,
-            CASE
-              WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-              WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
-              ELSE railway
-            END AS railway,
+            carto_railway_kind(railway, service) AS railway,
             tags->'highspeed' as highspeed,
             tags->'usage' as usage,
             construction,
             name,
-            (CASE
-              WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
-              ELSE 'no'
-            END) AS preserved
+            carto_yes_no(tags->'railway:preserved') AS preserved
           FROM planet_osm_line l
           WHERE railway IN ('rail', 'subway', 'narrow_gauge', 'light_rail', 'funicular', 'monorail', 'miniature', 'tram', 'disused', 'construction')
-            AND (tunnel IS NULL OR NOT tunnel IN ('yes', 'building_passage', 'avalanche_protector'))
+            AND (NOT carto_is_tunnel(tunnel))
             AND highway IS NULL -- Prevent duplicate rendering
             AND name IS NOT NULL
           ORDER BY
@@ -2114,15 +2024,13 @@ Layer:
       table: |-
         (SELECT
             ST_PointOnSurface(way) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels,
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels,
             COALESCE(
               'landuse_' || CASE WHEN landuse IN ('forest', 'military', 'farmland') THEN landuse END,
               'military_' || CASE WHEN military IN ('danger_area') THEN military END,
               'natural_' || CASE WHEN "natural" IN ('wood', 'glacier', 'sand', 'scree', 'shingle', 'bare_rock', 'water') THEN "natural" END,
               'place_' || CASE WHEN place IN ('island') THEN place END,
-              'boundary_' || CASE WHEN boundary IN ('aboriginal_lands', 'national_park')
-                                       OR (boundary = 'protected_area' AND tags->'protect_class' IN ('1','1a','1b','2','3','4','5','6'))
-                                       THEN boundary END,
+              'boundary_' || CASE WHEN carto_is_protected_area(boundary, tags->'protect_class') THEN boundary END,
               'leisure_' || CASE WHEN leisure IN ('nature_reserve') THEN leisure END
             ) AS feature,
             name,
@@ -2134,12 +2042,11 @@ Layer:
               OR military IN ('danger_area')
               OR "natural" IN ('wood', 'glacier', 'sand', 'scree', 'shingle', 'bare_rock', 'water')
               OR "place" IN ('island')
-              OR boundary IN ('aboriginal_lands', 'national_park')
-              OR (boundary = 'protected_area' AND tags->'protect_class' IN ('1','1a','1b','2','3','4','5','6'))
-              OR leisure IN ('nature_reserve'))
+              OR carto_is_protected_area(boundary, tags->'protect_class')
+              OR leisure = 'nature_reserve')
             AND building IS NULL
-            AND way_area > 100*POW(!scale_denominator!*0.001*0.28,2)
-            AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 100*carto_pixel_area(!scale_denominator!)
+            AND way_area < 768000*carto_pixel_area(!scale_denominator!)
           ORDER BY way_area DESC
         ) AS text_poly_low_zoom
     properties:
@@ -2195,13 +2102,13 @@ Layer:
         (SELECT
             name,
             ST_PointOnSurface(way) AS way,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
           WHERE ST_PointOnSurface(way) && !bbox!
             AND name IS NOT NULL
             AND building IS NOT NULL
             AND building NOT IN ('no')
-            AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area < 4000000*carto_pixel_area(!scale_denominator!)
           ORDER BY way_area DESC
         ) AS building_text
     properties:
@@ -2231,12 +2138,12 @@ Layer:
             "addr:housename" AS addr_housename,
             tags->'addr:unit' AS addr_unit,
             tags->'addr:flats' AS addr_flats,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
           WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
             AND (("addr:housenumber" IS NOT NULL) OR ("addr:housename" IS NOT NULL) OR ((tags->'addr:unit') IS NOT NULL) OR ((tags->'addr:flats') IS NOT NULL))
             AND building IS NOT NULL
-            AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area < 4000000*carto_pixel_area(!scale_denominator!)
         UNION ALL
         SELECT
             way,
@@ -2265,12 +2172,8 @@ Layer:
             name,
             "natural",
             tags->'lock_name' AS lock_name,
-            CASE WHEN tags->'intermittent' IN ('yes')
-              OR tags->'seasonal' IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
-              THEN 'yes' ELSE 'no' END AS int_intermittent,
-            CASE WHEN tunnel IN ('yes', 'culvert') 
-              OR waterway = 'canal' AND tunnel = 'flooded'
-              THEN 'yes' ELSE 'no' END AS int_tunnel
+            carto_water_intermittent(tags->'intermittent', tags->'seasonal') AS int_intermittent,
+            carto_waterway_int_tunnel(tunnel, waterway) AS int_tunnel
           FROM planet_osm_line
           WHERE (waterway IN ('river', 'canal', 'stream', 'drain', 'ditch')
                  OR "natural" IN ('bay', 'strait'))
@@ -2306,13 +2209,13 @@ Layer:
             way,
             name,
             admin_level,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
           WHERE boundary = 'administrative'
             AND admin_level IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10')
             AND name IS NOT NULL
             AND osm_id < 0
-            AND way_area > 196000*POW(!scale_denominator!*0.001*0.28,2)
+            AND way_area > 196000*carto_pixel_area(!scale_denominator!)
           ORDER BY admin_level::integer ASC, way_area DESC
         ) AS admin_text
     properties:
@@ -2328,11 +2231,10 @@ Layer:
             name,
             boundary,
             tags->'protect_class' AS protect_class,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
           FROM planet_osm_polygon
-          WHERE (boundary IN ('aboriginal_lands', 'national_park')
-                 OR leisure = 'nature_reserve'
-                 OR (boundary = 'protected_area' AND tags->'protect_class' IN ('1','1a','1b','2','3','4','5','6')))
+          WHERE (carto_is_protected_area(boundary, tags->'protect_class')
+                 OR leisure = 'nature_reserve')
             AND name IS NOT NULL
         ) AS protected_areas_text
     properties:
@@ -2353,9 +2255,9 @@ Layer:
               'man_made_' || CASE WHEN man_made IN ('cross') AND way_area IS NULL THEN man_made END,
               'barrier_' || CASE WHEN barrier IN ('bollard', 'gate', 'lift_gate', 'swing_gate', 'block', 'log', 'cattle_grid', 'stile', 'motorcycle_barrier', 'cycle_barrier', 'full-height_turnstile', 'turnstile', 'kissing_gate') THEN barrier END
             )  AS feature,
-            CASE WHEN access IN ('private', 'no', 'customers', 'permit', 'delivery') THEN 'restricted' ELSE 'yes' END AS int_access,
+            carto_poi_int_access(access) AS int_access,
             way_area,
-            way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0) AS way_pixels
+            carto_way_pixels(way_area, !scale_denominator!) AS way_pixels
             FROM
               (SELECT
                   ST_PointOnSurface(way) AS way,
@@ -2371,7 +2273,7 @@ Layer:
                   way_area
                 FROM planet_osm_polygon
                 WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
-                  AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+                  AND way_area < 768000*carto_pixel_area(!scale_denominator!)
               UNION ALL
               SELECT
                   way,

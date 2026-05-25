@@ -90,3 +90,167 @@ SELECT
 		ELSE CAST(ROUND(LOG(2, 559082264.028 / scale_denominator)) AS integer)
 	END
 $$;
+
+/* Area on the ground (in projected units, squared) covered by one rendered pixel
+   at the given Mapnik scale_denominator. The 0.28 mm constant is the OGC
+   standard pixel size; the *0.001 converts mm to m. Intended for use as a
+   threshold for way_area comparisons, e.g.
+     WHERE way_area > 100 * carto_pixel_area(!scale_denominator!) */
+CREATE OR REPLACE FUNCTION carto_pixel_area(scale_denominator numeric)
+  RETURNS double precision
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT POW(scale_denominator * 0.001 * 0.28, 2)::double precision
+$$;
+
+/* way_area expressed in rendered pixels at the given scale_denominator. */
+CREATE OR REPLACE FUNCTION carto_way_pixels(way_area double precision, scale_denominator numeric)
+  RETURNS double precision
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+-- Mapnik should not pass scale_denominator = 0 in practice; NULLIF preserves
+-- the previous behavior and keeps query tests that substitute 0 from failing.
+SELECT way_area / NULLIF(carto_pixel_area(scale_denominator), 0)
+$$;
+
+/* Buckets the OSM surface tag into 'paved' / 'unpaved' / NULL using the same
+   value lists shared by every road, bridge, tunnel, and aeroway query. */
+CREATE OR REPLACE FUNCTION carto_int_surface(surface text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT
+	CASE
+		WHEN surface IN ('unpaved', 'compacted', 'dirt', 'earth', 'fine_gravel', 'grass', 'grass_paver', 'gravel', 'ground',
+		                 'mud', 'pebblestone', 'salt', 'sand', 'woodchips', 'clay', 'ice', 'snow') THEN 'unpaved'
+		WHEN surface IN ('paved', 'asphalt', 'cobblestone', 'cobblestone:flattened', 'sett', 'concrete', 'concrete:lanes',
+		                 'concrete:plates', 'paving_stones', 'metal', 'wood', 'unhewn_cobblestone') THEN 'paved'
+	END
+$$;
+
+/* True iff the tunnel tag indicates the way passes through a structure that
+   we should render as a tunnel. Returns false (not NULL) for tunnel IS NULL,
+   so the result is a clean boolean for use in WHERE/NOT. */
+CREATE OR REPLACE FUNCTION carto_is_tunnel(tunnel text)
+  RETURNS boolean
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT COALESCE(tunnel IN ('yes', 'building_passage', 'avalanche_protector'), FALSE)
+$$;
+
+/* True iff the bridge tag indicates we should render the way as a bridge. */
+CREATE OR REPLACE FUNCTION carto_is_bridge(bridge text)
+  RETURNS boolean
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT COALESCE(bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct'), FALSE)
+$$;
+
+/* True iff the highway tag is one of the *_link variants. */
+CREATE OR REPLACE FUNCTION carto_is_link(highway text)
+  RETURNS boolean
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT COALESCE(highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link'), FALSE)
+$$;
+
+/* True iff the (boundary, protect_class) pair identifies a protected area
+   recognised by our render. Excludes leisure=nature_reserve, which is checked
+   alongside this in callers that need it. */
+CREATE OR REPLACE FUNCTION carto_is_protected_area(boundary text, protect_class text)
+  RETURNS boolean
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT COALESCE(
+	boundary IN ('aboriginal_lands', 'national_park')
+	  OR (boundary = 'protected_area' AND protect_class IN ('1','1a','1b','2','3','4','5','6')),
+	FALSE)
+$$;
+
+/* 'yes'/'no' string for whether a waterway is intermittent or seasonal.
+   Caller passes the extracted tag values (tags->'intermittent', tags->'seasonal').
+   Note: the water-areas layer additionally checks tags->'basin' inline; that
+   variation stays at the call site. */
+CREATE OR REPLACE FUNCTION carto_water_intermittent(intermittent text, seasonal text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT
+	CASE WHEN intermittent IN ('yes')
+		OR seasonal IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
+		THEN 'yes' ELSE 'no' END
+$$;
+
+/* 'yes'/'no' string for whether a waterway way runs through a tunnel/culvert.
+   Treats waterway=canal + tunnel=flooded as a tunnel. */
+CREATE OR REPLACE FUNCTION carto_waterway_int_tunnel(tunnel text, waterway text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT
+	CASE WHEN tunnel IN ('yes', 'culvert')
+		OR (waterway = 'canal' AND tunnel = 'flooded')
+		THEN 'yes' ELSE 'no' END
+$$;
+
+/* Trivially folds a tag value into a 'yes'/'no' string: 'yes' iff the value is
+   literally 'yes', otherwise 'no'. Used for tag values where we only care
+   about the affirmative case (e.g. tags->'railway:preserved'). */
+CREATE OR REPLACE FUNCTION carto_yes_no(value text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT CASE WHEN value = 'yes' THEN 'yes' ELSE 'no' END
+$$;
+
+/* Synthetic kind for a railway way: the railway tag, with two replacements
+   for spur/siding/yard service ways on rail and tram. Callers prepend
+   'railway_' themselves when they need the full feature name. */
+CREATE OR REPLACE FUNCTION carto_railway_kind(railway text, service text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT
+	CASE
+		WHEN railway = 'rail' AND service IN ('spur', 'siding', 'yard') THEN 'INT-spur-siding-yard'
+		WHEN railway = 'tram' AND service IN ('spur', 'siding', 'yard') THEN 'tram-service'
+		ELSE railway
+	END
+$$;
+
+/* INT-minor / INT-normal classification for highway service ways. The leisure
+   argument is checked for 'slipway' (a slip ramp is treated as a minor service
+   way). Pass NULL for leisure when the caller does not have it. */
+CREATE OR REPLACE FUNCTION carto_service_class(service text, leisure text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT
+	CASE
+		WHEN service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure = 'slipway' THEN 'INT-minor'
+		ELSE 'INT-normal'
+	END
+$$;
+
+/* 'restricted' / 'yes' classification used by POI layers (distinct from the
+   highway-oriented carto_int_access above; restricted POIs cover a wider set
+   of access tag values). */
+CREATE OR REPLACE FUNCTION carto_poi_int_access(access_value text)
+  RETURNS text
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT CASE WHEN access_value IN ('private', 'no', 'customers', 'permit', 'delivery') THEN 'restricted' ELSE 'yes' END
+$$;
