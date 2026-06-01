@@ -1,8 +1,21 @@
 FROM ubuntu:noble
 
+ARG OSM2PGSQL_REPO=https://github.com/leijurv/osm2pgsql.git
+ARG OSM2PGSQL_REF=grouped-linemerge
+
 RUN apt-get update && apt-get install --no-install-recommends -y \
     osm2pgsql gdal-bin python3-psycopg2 python3-yaml curl unzip \
-    python3-requests postgresql-client && rm -rf /var/lib/apt/lists/*
+    python3-requests postgresql-client \
+    git ca-certificates cmake g++ make \
+    libboost-dev libexpat1-dev zlib1g-dev libbz2-dev libpq-dev \
+    libproj-dev liblua5.3-dev lua5.3 nlohmann-json3-dev \
+    libopencv-dev libpotrace-dev \
+ && git clone --depth 1 --branch "$OSM2PGSQL_REF" "$OSM2PGSQL_REPO" /tmp/osm2pgsql \
+ && cmake -S /tmp/osm2pgsql -B /tmp/osm2pgsql/build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build /tmp/osm2pgsql/build -j "$(nproc)" --target osm2pgsql-gen \
+ && install -m 0755 /tmp/osm2pgsql/build/osm2pgsql-gen /usr/local/bin/osm2pgsql-gen \
+ && rm -rf /tmp/osm2pgsql \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /openstreetmap-carto
 WORKDIR /openstreetmap-carto

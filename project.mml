@@ -1912,6 +1912,8 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
+        -- Issue #951: read pre-merged roads from planet_osm_coalesced_roads
+        -- (built by osm2pgsql-gen) instead of merging at render time.
         (SELECT
             way,
             highway,
@@ -1920,7 +1922,6 @@ Layer:
             refs
           FROM (
             SELECT
-                osm_id,
                 way,
                 highway,
                 array_length(refs,1) AS height,
@@ -1928,14 +1929,13 @@ Layer:
                 array_to_string(refs, E'\n') AS refs
               FROM (
                 SELECT
-                    osm_id,
                     way,
                     COALESCE(
                       CASE WHEN highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') THEN highway END,
                       CASE WHEN aeroway IN ('runway', 'taxiway') THEN aeroway END
                     ) AS highway,
                     string_to_array(ref, ';') AS refs
-                  FROM planet_osm_line
+                  FROM planet_osm_coalesced_roads
                   WHERE (highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR aeroway IN ('runway', 'taxiway'))
                     AND ref IS NOT NULL
               ) AS p) AS q
@@ -1953,7 +1953,7 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            way
         ) AS roads_text_ref
     properties:
       minzoom: 13
@@ -1988,12 +1988,53 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
+        -- Issue #951: read pre-merged roads from planet_osm_coalesced_roads
+        -- (built by osm2pgsql-gen). One-way arrows are rendered separately in
+        -- the roads-direction-arrows layer because ST_LineMerge does not
+        -- preserve linestring orientation. Label-priority ordering uses a
+        -- highway-class CASE in place of z_order (not stored on the merged
+        -- table).
         (SELECT
             way,
-            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
+            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END AS highway,
             CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
             construction,
-            name,
+            name
+          FROM planet_osm_coalesced_roads
+          WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
+                            'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
+            AND name IS NOT NULL
+          ORDER BY
+            CASE -- approximate z_order: put important roads first
+              WHEN highway = 'motorway' THEN 38
+              WHEN highway = 'trunk' THEN 37
+              WHEN highway = 'primary' THEN 36
+              WHEN highway = 'secondary' THEN 35
+              WHEN highway = 'tertiary' THEN 34
+              WHEN highway IN ('residential', 'unclassified', 'road', 'living_street') THEN 33
+              WHEN highway = 'pedestrian' THEN 32
+              ELSE 30
+            END DESC NULLS LAST,
+            COALESCE(layer, 0), -- put top layered roads first
+            length(name) DESC, -- Try to fit big labels in first
+            name DESC, -- Force a consistent ordering between differently named streets
+            ST_Length(way) DESC -- deterministic tie-break (no osm_id on the merged table)
+        ) AS roads_text_name
+    properties:
+      cache-features: true
+      minzoom: 13
+  - id: roads-direction-arrows
+    geometry: linestring
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      table: |-
+        -- One-way arrows must be rendered per original OSM way because
+        -- ST_LineMerge does not preserve direction. Kept separate from
+        -- roads-text-name so the name labels can use merged geometry.
+        (SELECT
+            way,
+            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END AS highway,
             CASE
               WHEN oneway IN ('yes', '-1') THEN oneway
               WHEN junction IN ('roundabout') AND (oneway IS NULL OR NOT oneway IN ('no', 'reversible')) THEN 'yes'
@@ -2001,19 +2042,15 @@ Layer:
           FROM planet_osm_line l
           WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
                             'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
-            AND (name IS NOT NULL
-              OR oneway IN ('yes', '-1')
-              OR junction IN ('roundabout'))
+            AND (oneway IN ('yes', '-1') OR junction IN ('roundabout'))
           ORDER BY
             z_order DESC, -- put important roads first
             COALESCE(layer, 0), -- put top layered roads first
-            length(name) DESC, -- Try to fit big labels in first
-            name DESC, -- Force a consistent ordering between differently named streets
             l.osm_id DESC -- Force an ordering for streets of the same name, e.g. dualized roads
-        ) AS roads_text_name
+        ) AS roads_direction_arrows
     properties:
       cache-features: true
-      minzoom: 13
+      minzoom: 16
   - id: paths-text-name
     geometry: linestring
     <<: *extents
@@ -2079,6 +2116,8 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
+        -- Issue #951: read pre-merged roads from planet_osm_coalesced_roads
+        -- (built by osm2pgsql-gen) instead of merging at render time.
         (SELECT
             way,
             highway,
@@ -2087,7 +2126,6 @@ Layer:
             refs
           FROM (
             SELECT
-                osm_id,
                 way,
                 highway,
                 array_length(refs,1) AS height,
@@ -2095,11 +2133,10 @@ Layer:
                 array_to_string(refs, E'\n') AS refs
               FROM (
                 SELECT
-                    osm_id,
                     way,
                     CASE WHEN highway IN ('unclassified', 'residential', 'track') THEN highway END AS highway,
                     string_to_array(ref, ';') AS refs
-                  FROM planet_osm_line
+                  FROM planet_osm_coalesced_roads
                   WHERE highway IN ('unclassified', 'residential', 'track')
                     AND ref IS NOT NULL
               ) AS p) AS q
@@ -2113,7 +2150,7 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            way
         ) AS roads_text_ref_minor
     properties:
       minzoom: 15

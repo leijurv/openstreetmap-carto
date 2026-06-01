@@ -157,6 +157,17 @@ local tables = {}
 local columns_in_point_table = {}
 local columns_in_non_point_tables = {}
 
+-- Expire output for the coalesced-roads generalization (issue #951). It
+-- records, at this zoom, the tiles whose line geometry changed during an
+-- update; osm2pgsql-gen uses it to incrementally re-merge only the affected
+-- roads. Only effective for updatable (slim, non --drop) imports; harmless
+-- otherwise.
+local coalesced_expire = osm2pgsql.define_expire_output({
+    maxzoom = 18,
+    schema = SCHEMA,
+    table = PREFIX .. 'expire_roads',
+})
+
 -- Combine the table definitions and the column definitions from above to
 -- the final definitions and create the tables.
 for name, definition in pairs(table_definitions) do
@@ -169,6 +180,11 @@ for name, definition in pairs(table_definitions) do
         type = definition.geometry_type,
         not_null = true
     }
+
+    -- Track line-geometry changes for the coalesced-roads generalization.
+    if name == 'line' then
+        definition.geom.expire = {{ output = coalesced_expire }}
+    end
 
     -- Add column definitions to table definitions
     for _, column in ipairs(table_columns[name]) do
@@ -192,6 +208,27 @@ for name, definition in pairs(table_definitions) do
         tables[name] = osm2pgsql.define_table(definition)
     end
 end
+
+-- Destination table for the 'grouped-linemerge' generalization (issue #951).
+-- It is filled and incrementally maintained by osm2pgsql-gen, not by the
+-- import itself, so it has no OSM id column. The columns are exactly the
+-- grouping keys plus the merged geometry. osm2pgsql creates it empty during
+-- import; run osm2pgsql-gen to populate it.
+osm2pgsql.define_table({
+    name = PREFIX .. 'coalesced_roads',
+    schema = SCHEMA,
+    columns = {
+        { column = 'highway', type = 'text' },
+        { column = 'aeroway', type = 'text' },
+        { column = 'name', type = 'text' },
+        { column = 'ref', type = 'text' },
+        { column = 'layer', type = 'int4' },
+        { column = 'tunnel', type = 'text' },
+        { column = 'covered', type = 'text' },
+        { column = 'construction', type = 'text' },
+        { column = 'way', type = 'linestring', not_null = true },
+    }
+})
 
 -- Objects with any of the following keys will be treated as polygon
 local polygon_keys = {
@@ -689,4 +726,26 @@ else
     osm2pgsql.process_node = process_node
     osm2pgsql.process_way = process_way
     osm2pgsql.process_relation = process_relation
+end
+
+-- Generalization step for issue #951. Run separately with osm2pgsql-gen after
+-- the import (and, on updatable imports, after each update):
+--     osm2pgsql-gen -S openstreetmap-carto-flex.lua            (create)
+--     osm2pgsql-gen -a -S openstreetmap-carto-flex.lua         (update)
+-- It merges connected road segments that share the same rendering-relevant
+-- attributes into single lines in planet_osm_coalesced_roads, which the road
+-- label/shield layers query. Grouping by the base columns is intentionally
+-- "over-selective": it never merges two ways that would render differently,
+-- at the cost of occasionally not merging two that render the same.
+function osm2pgsql.process_gen()
+    osm2pgsql.run_gen('grouped-linemerge', {
+        name = 'coalesced_roads',
+        src_table = PREFIX .. 'line',
+        dest_table = PREFIX .. 'coalesced_roads',
+        geom_column = 'way',
+        group_by_columns = 'highway, aeroway, name, ref, layer, tunnel, covered, construction',
+        where = '(name IS NOT NULL OR ref IS NOT NULL) AND (highway IS NOT NULL OR aeroway IS NOT NULL)',
+        expire_list = PREFIX .. 'expire_roads',
+        zoom = 18,
+    })
 end

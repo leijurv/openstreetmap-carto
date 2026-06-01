@@ -59,6 +59,19 @@ EOF
   psql -d gis -f functions.sql
   psql -d gis -f common-values.sql
 
+  # Building the coalesced-roads table (issue #951): connected road segments
+  # that share the same rendering-relevant attributes are merged into single
+  # lines in planet_osm_coalesced_roads, which the road label/shield layers
+  # query. Built with the experimental osm2pgsql-gen (grouped-linemerge).
+  if command -v osm2pgsql-gen >/dev/null 2>&1; then
+    echo "Building coalesced roads (osm2pgsql-gen)"
+    osm2pgsql-gen \
+    --database gis \
+    --style openstreetmap-carto-flex.lua
+  else
+    echo "osm2pgsql-gen not found; skipping planet_osm_coalesced_roads (road labels/shields will not render)"
+  fi
+
   # Downloading and importing needed shapefiles
   scripts/get-external-data.py $EXTERNAL_DATA_SCRIPT_FLAGS
 
