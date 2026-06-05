@@ -55,6 +55,7 @@ Stylesheet:
   - style/addressing.mss
   - style/golf.mss
   - style/tourism.mss
+  - style/unbuffered-bbox-demo.mss
 Layer:
   - id: landcover-low-zoom
     geometry: polygon
@@ -2426,3 +2427,21 @@ Layer:
       table: *amenity_low_priority_sql
     properties:
       minzoom: 17
+  # --- !unbuffered_bbox! demonstration layers (see style/unbuffered-bbox-demo.mss) ---
+  # Red traces the unbuffered (meta)tile boundary; green traces the buffered
+  # !bbox!. With Map buffer-size > 0 you should see a bit of red on the tile
+  # seams and no green at all.
+  - id: unbuffered-bbox-demo
+    geometry: line
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      table: |-
+        (SELECT ST_Boundary(!unbuffered_bbox!) AS way) AS unbuffered_bbox_demo
+  - id: bbox-demo
+    geometry: line
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      table: |-
+        (SELECT ST_Boundary(!bbox!) AS way) AS bbox_demo
