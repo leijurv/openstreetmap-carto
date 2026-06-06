@@ -55,7 +55,6 @@ Stylesheet:
   - style/addressing.mss
   - style/golf.mss
   - style/tourism.mss
-  - style/unbuffered-bbox-demo.mss
 Layer:
   - id: landcover-low-zoom
     geometry: polygon
@@ -1912,35 +1911,49 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: shields merged per (highway, ref, layer) so one shield is
+      # placed per logical road. Same offset-grid aggregation as roads-text-name
+      # via carto_label_merge_cell() (see functions.sql); ways that cannot be
+      # merged consistently fall through unmerged via the cell-IS-NULL group key.
       table: |-
-        (SELECT
-            way,
-            highway,
-            height,
-            width,
-            refs
+        (SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                osm_id,
                 way,
                 highway,
                 array_length(refs,1) AS height,
                 (SELECT MAX(char_length(ref)) FROM unnest(refs) AS u(ref)) AS width,
-                array_to_string(refs, E'\n') AS refs
+                array_to_string(refs, E'\n') AS refs,
+                osm_id
               FROM (
                 SELECT
-                    osm_id,
-                    way,
-                    COALESCE(
-                      CASE WHEN highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') THEN highway END,
-                      CASE WHEN aeroway IN ('runway', 'taxiway') THEN aeroway END
-                    ) AS highway,
-                    string_to_array(ref, ';') AS refs
-                  FROM planet_osm_line
-                  WHERE (highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR aeroway IN ('runway', 'taxiway'))
-                    AND ref IS NOT NULL
-              ) AS p) AS q
-          WHERE height <= 4 AND width <= 11
+                    (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way,
+                    highway,
+                    string_to_array(ref, ';') AS refs,
+                    MIN(osm_id) AS osm_id
+                  FROM (
+                    SELECT
+                        way, highway, ref, layer, osm_id,
+                        carto_label_merge_cell(xmin, xmax, ymin, ymax,
+                          !unbuffered_bbox!, ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)) AS cell
+                      FROM (
+                        SELECT
+                            l.way, l.osm_id, COALESCE(l.layer, 0) AS layer,
+                            COALESCE(
+                              CASE WHEN l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') THEN l.highway END,
+                              CASE WHEN l.aeroway IN ('runway', 'taxiway') THEN l.aeroway END
+                            ) AS highway,
+                            l.ref,
+                            ST_XMin(l.way) AS xmin, ST_XMax(l.way) AS xmax, ST_YMin(l.way) AS ymin, ST_YMax(l.way) AS ymax
+                          FROM planet_osm_line l
+                          WHERE l.way && ST_Expand(!unbuffered_bbox!, (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) / 2)
+                            AND (l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR l.aeroway IN ('runway', 'taxiway'))
+                            AND l.ref IS NOT NULL
+                      ) b
+                  ) e
+                  GROUP BY highway, ref, layer, cell, CASE WHEN cell IS NULL THEN osm_id END
+              ) merged) AS q
+          WHERE way && !bbox! AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'motorway' THEN 38
@@ -1954,9 +1967,11 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            osm_id,
+            ST_AsEWKB(way) -- Issue #951: consistent order for ST_Dump parts sharing the keys above
         ) AS roads_text_ref
     properties:
+      cache-features: true
       minzoom: 13
   - id: roads-area-text-name
     geometry: point
@@ -1988,13 +2003,81 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: ways sharing the rendering-relevant tuple (highway, tunnel,
+      # construction, name, layer) are collected and ST_LineMerge'd so one label
+      # is placed per logical road, not per OSM way. carto_label_merge_cell()
+      # (see functions.sql) bins each way into one of the four aggregation cells
+      # overlapping the metatile by its bbox centre, returning NULL for ways that
+      # must not be merged (too large / centre outside the four cells); those
+      # pass through unmerged via the "CASE WHEN cell IS NULL THEN osm_id" group
+      # key. The grid is the metatile grid offset by half a metatile, so the
+      # merged geometry is identical across metatiles -- no avoid-edges needed.
+      # _link is kept in the GROUP BY (highway_raw) so a motorway is not pulled
+      # through its offramp; it is stripped only for the symbolizer. One-way
+      # arrows live in roads-direction-arrows because ST_LineMerge does not
+      # preserve linestring orientation.
+      table: |-
+        (SELECT way, highway, tunnel, construction, name
+          FROM (
+            SELECT
+                (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way,
+                highway,
+                tunnel,
+                construction,
+                name,
+                MAX(z_order) AS z_order,
+                layer,
+                MIN(osm_id) AS osm_id
+              FROM (
+                SELECT
+                    way, highway_raw, highway, tunnel, construction, name, layer, z_order, osm_id,
+                    carto_label_merge_cell(xmin, xmax, ymin, ymax,
+                      !unbuffered_bbox!, ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)) AS cell
+                  FROM (
+                    SELECT
+                        l.way, l.osm_id, l.z_order, COALESCE(l.layer, 0) AS layer,
+                        l.highway AS highway_raw,
+                        CASE WHEN substr(l.highway, length(l.highway)-4, 5) = '_link' THEN substr(l.highway, 0, length(l.highway)-4) ELSE l.highway END AS highway,
+                        CASE WHEN (l.tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR l.covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
+                        l.construction,
+                        l.name,
+                        ST_XMin(l.way) AS xmin, ST_XMax(l.way) AS xmax, ST_YMin(l.way) AS ymin, ST_YMax(l.way) AS ymax
+                      FROM planet_osm_line l
+                      WHERE l.way && ST_Expand(!unbuffered_bbox!, (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) / 2)
+                        AND l.highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
+                                          'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
+                        AND l.name IS NOT NULL
+                  ) b
+              ) e
+              GROUP BY highway_raw, highway, tunnel, construction, name, layer, cell, CASE WHEN cell IS NULL THEN osm_id END
+          ) m
+          WHERE way && !bbox!
+          ORDER BY
+            z_order DESC, -- put important roads first
+            layer, -- put top layered roads first
+            length(name) DESC, -- Try to fit big labels in first
+            name DESC, -- Force a consistent ordering between differently named streets
+            osm_id DESC, -- Force an ordering for streets of the same name, e.g. dualized roads
+            ST_AsEWKB(way) -- Issue #951: disjoint parts of one merge group (split by ST_Dump) share
+                           -- every key above, so order them by geometry. Mapnik resolves label
+                           -- collisions in feature order, so this order must be identical in every
+                           -- metatile; the geometry is byte-identical across metatiles, so it is.
+        ) AS roads_text_name
+    properties:
+      cache-features: true
+      minzoom: 13
+  - id: roads-direction-arrows
+    geometry: linestring
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      # One-way arrows are rendered per original OSM way (not merged) because
+      # ST_LineMerge does not preserve direction. Split out of roads-text-name
+      # (issue #951) so the name labels can use merged geometry.
       table: |-
         (SELECT
             way,
-            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
-            CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
-            construction,
-            name,
+            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END AS highway,
             CASE
               WHEN oneway IN ('yes', '-1') THEN oneway
               WHEN junction IN ('roundabout') AND (oneway IS NULL OR NOT oneway IN ('no', 'reversible')) THEN 'yes'
@@ -2002,19 +2085,15 @@ Layer:
           FROM planet_osm_line l
           WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
                             'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
-            AND (name IS NOT NULL
-              OR oneway IN ('yes', '-1')
-              OR junction IN ('roundabout'))
+            AND (oneway IN ('yes', '-1') OR junction IN ('roundabout'))
           ORDER BY
             z_order DESC, -- put important roads first
             COALESCE(layer, 0), -- put top layered roads first
-            length(name) DESC, -- Try to fit big labels in first
-            name DESC, -- Force a consistent ordering between differently named streets
             l.osm_id DESC -- Force an ordering for streets of the same name, e.g. dualized roads
-        ) AS roads_text_name
+        ) AS roads_direction_arrows
     properties:
       cache-features: true
-      minzoom: 13
+      minzoom: 16
   - id: paths-text-name
     geometry: linestring
     <<: *extents
@@ -2079,32 +2158,44 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: minor-road shields merged per (highway, ref, layer); same
+      # offset-grid aggregation as roads-text-ref (see functions.sql).
       table: |-
-        (SELECT
-            way,
-            highway,
-            height,
-            width,
-            refs
+        (SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                osm_id,
                 way,
                 highway,
                 array_length(refs,1) AS height,
                 (SELECT MAX(char_length(ref)) FROM unnest(refs) AS u(ref)) AS width,
-                array_to_string(refs, E'\n') AS refs
+                array_to_string(refs, E'\n') AS refs,
+                osm_id
               FROM (
                 SELECT
-                    osm_id,
-                    way,
-                    CASE WHEN highway IN ('unclassified', 'residential', 'track') THEN highway END AS highway,
-                    string_to_array(ref, ';') AS refs
-                  FROM planet_osm_line
-                  WHERE highway IN ('unclassified', 'residential', 'track')
-                    AND ref IS NOT NULL
-              ) AS p) AS q
-          WHERE height <= 4 AND width <= 11
+                    (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way,
+                    highway,
+                    string_to_array(ref, ';') AS refs,
+                    MIN(osm_id) AS osm_id
+                  FROM (
+                    SELECT
+                        way, highway, ref, layer, osm_id,
+                        carto_label_merge_cell(xmin, xmax, ymin, ymax,
+                          !unbuffered_bbox!, ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)) AS cell
+                      FROM (
+                        SELECT
+                            l.way, l.osm_id, COALESCE(l.layer, 0) AS layer,
+                            CASE WHEN l.highway IN ('unclassified', 'residential', 'track') THEN l.highway END AS highway,
+                            l.ref,
+                            ST_XMin(l.way) AS xmin, ST_XMax(l.way) AS xmax, ST_YMin(l.way) AS ymin, ST_YMax(l.way) AS ymax
+                          FROM planet_osm_line l
+                          WHERE l.way && ST_Expand(!unbuffered_bbox!, (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) / 2)
+                            AND l.highway IN ('unclassified', 'residential', 'track')
+                            AND l.ref IS NOT NULL
+                      ) b
+                  ) e
+                  GROUP BY highway, ref, layer, cell, CASE WHEN cell IS NULL THEN osm_id END
+              ) merged) AS q
+          WHERE way && !bbox! AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'unclassified' THEN 33
@@ -2114,9 +2205,11 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            osm_id,
+            ST_AsEWKB(way) -- Issue #951: consistent order for ST_Dump parts sharing the keys above
         ) AS roads_text_ref_minor
     properties:
+      cache-features: true
       minzoom: 15
   - id: text-poly-low-zoom
     geometry: point
@@ -2427,21 +2520,3 @@ Layer:
       table: *amenity_low_priority_sql
     properties:
       minzoom: 17
-  # --- !unbuffered_bbox! demonstration layers (see style/unbuffered-bbox-demo.mss) ---
-  # Red traces the unbuffered (meta)tile boundary; green traces the buffered
-  # !bbox!. With Map buffer-size > 0 you should see a bit of red on the tile
-  # seams and no green at all.
-  - id: unbuffered-bbox-demo
-    geometry: line
-    <<: *extents
-    Datasource:
-      <<: *osm2pgsql
-      table: |-
-        (SELECT ST_Boundary(!unbuffered_bbox!) AS way) AS unbuffered_bbox_demo
-  - id: bbox-demo
-    geometry: line
-    <<: *extents
-    Datasource:
-      <<: *osm2pgsql
-      table: |-
-        (SELECT ST_Boundary(!bbox!) AS way) AS bbox_demo

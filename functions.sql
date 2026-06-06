@@ -90,3 +90,46 @@ SELECT
 		ELSE CAST(ROUND(LOG(2, 559082264.028 / scale_denominator)) AS integer)
 	END
 $$;
+
+/* Issue #951 -- render-time aggregation of split road geometries so that one
+   label/shield is placed per logical road instead of per OSM way, while keeping
+   the merged geometry identical across (meta)tile boundaries.
+
+   The aggregation grid is the metatile grid offset by half a metatile, so every
+   metatile overlaps exactly four cells; a feature is binned by the centre of its
+   bounding box. This function returns which of those four cells (0..3) a feature
+   belongs to, or NULL if the feature must NOT be merged. A feature is mergeable
+   only when its whole bounding box fits inside the union of the (up to four)
+   metatiles that own its cell, shrunk by the render buffer plus a small margin.
+   That guarantees the merged geometry never reaches a metatile which does not
+   share the cell -- so every metatile that can render it computes the identical
+   merge, and there are no tile-edge inconsistencies. Features failing the test
+   (too large, or centre outside the four cells) get NULL and pass through whole.
+
+   The margin (+8 projection units, ~a few float4 ULPs of the Web Mercator
+   extent) absorbs the fact that Mapnik's `way && !bbox!` feature selection uses
+   single-precision bounding boxes: without it a merged feature could be picked
+   up, unmerged, by a neighbour a metre or two outside the contracted union.
+
+   Pass the four bbox extents pre-extracted (ST_XMin(way) etc., once each) so the
+   expression inlines; ub must be the !unbuffered_bbox! literal (constant) and
+   buf the buffer width, e.g. ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!). */
+CREATE OR REPLACE FUNCTION carto_label_merge_cell(
+		xmin double precision, xmax double precision,
+		ymin double precision, ymax double precision,
+		ub geometry, buf double precision)
+	RETURNS integer
+	LANGUAGE SQL
+	IMMUTABLE PARALLEL SAFE
+AS $$
+	SELECT CASE
+		WHEN round(((xmin + xmax) / 2 - ST_XMin(ub)) / (ST_XMax(ub) - ST_XMin(ub)))::int IN (0, 1)
+		 AND round(((ymin + ymax) / 2 - ST_YMin(ub)) / (ST_YMax(ub) - ST_YMin(ub)))::int IN (0, 1)
+		 AND xmin >= ST_XMin(ub) + (round(((xmin + xmax) / 2 - ST_XMin(ub)) / (ST_XMax(ub) - ST_XMin(ub))) - 1) * (ST_XMax(ub) - ST_XMin(ub)) + (buf + 8)
+		 AND xmax <= ST_XMin(ub) + (round(((xmin + xmax) / 2 - ST_XMin(ub)) / (ST_XMax(ub) - ST_XMin(ub))) + 1) * (ST_XMax(ub) - ST_XMin(ub)) - (buf + 8)
+		 AND ymin >= ST_YMin(ub) + (round(((ymin + ymax) / 2 - ST_YMin(ub)) / (ST_YMax(ub) - ST_YMin(ub))) - 1) * (ST_YMax(ub) - ST_YMin(ub)) + (buf + 8)
+		 AND ymax <= ST_YMin(ub) + (round(((ymin + ymax) / 2 - ST_YMin(ub)) / (ST_YMax(ub) - ST_YMin(ub))) + 1) * (ST_YMax(ub) - ST_YMin(ub)) - (buf + 8)
+		THEN round(((xmin + xmax) / 2 - ST_XMin(ub)) / (ST_XMax(ub) - ST_XMin(ub)))::int * 2
+		   + round(((ymin + ymax) / 2 - ST_YMin(ub)) / (ST_YMax(ub) - ST_YMin(ub)))::int
+	END
+$$;
