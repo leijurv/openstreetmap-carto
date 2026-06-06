@@ -55,7 +55,6 @@ Stylesheet:
   - style/addressing.mss
   - style/golf.mss
   - style/tourism.mss
-  - style/unbuffered-bbox-demo.mss
 Layer:
   - id: landcover-low-zoom
     geometry: polygon
@@ -1912,35 +1911,56 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: shields merged per (highway, ref, layer) so one shield is
+      # placed per logical road. Same offset-grid aggregation as roads-text-name:
+      # a way is assigned to the unit (the metatile shifted half a metatile to a
+      # corner) whose cell holds its bbox centre, and merges only if the way grown
+      # by the render buffer fits inside that cell grown by half a metatile. Ways
+      # failing that fall through unmerged via the UNION ALL.
       table: |-
-        (SELECT
-            way,
-            highway,
-            height,
-            width,
-            refs
+        (WITH dims AS ( -- metatiles are square and the render buffer is symmetric, so one of each
+            SELECT 0.5 * (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) AS half,   -- half a metatile
+                   ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)                    AS buffer  -- render buffer width
+        ),
+        units AS ( -- the four aggregation cells, centred on the metatile's corners
+            SELECT v.unit, ST_Translate(!unbuffered_bbox!, v.sx * dims.half, v.sy * dims.half) AS cell
+              FROM dims, (VALUES (1, -1.0, -1.0), (2, 1.0, -1.0), (3, -1.0, 1.0), (4, 1.0, 1.0)) AS v(unit, sx, sy)
+        ),
+        ways AS (
+            SELECT
+                l.way, l.osm_id, COALESCE(l.layer, 0) AS layer,
+                COALESCE(
+                  CASE WHEN l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') THEN l.highway END,
+                  CASE WHEN l.aeroway IN ('runway', 'taxiway') THEN l.aeroway END
+                ) AS highway,
+                l.ref,
+                (SELECT unit FROM units
+                  WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer + 8))) AS unit
+              FROM planet_osm_line l, dims
+              WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
+                AND (l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR l.aeroway IN ('runway', 'taxiway'))
+                AND l.ref IS NOT NULL
+        ),
+        features AS (
+            SELECT (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way, highway, ref, MIN(osm_id) AS osm_id
+              FROM ways WHERE unit IS NOT NULL
+              GROUP BY unit, highway, ref, layer
+            UNION ALL
+            SELECT way, highway, ref, osm_id
+              FROM ways WHERE unit IS NULL
+        )
+        SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                osm_id,
-                way,
-                highway,
-                array_length(refs,1) AS height,
-                (SELECT MAX(char_length(ref)) FROM unnest(refs) AS u(ref)) AS width,
-                array_to_string(refs, E'\n') AS refs
-              FROM (
-                SELECT
-                    osm_id,
-                    way,
-                    COALESCE(
-                      CASE WHEN highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') THEN highway END,
-                      CASE WHEN aeroway IN ('runway', 'taxiway') THEN aeroway END
-                    ) AS highway,
-                    string_to_array(ref, ';') AS refs
-                  FROM planet_osm_line
-                  WHERE (highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR aeroway IN ('runway', 'taxiway'))
-                    AND ref IS NOT NULL
-              ) AS p) AS q
-          WHERE height <= 4 AND width <= 11
+                way, highway,
+                array_length(refs, 1) AS height,
+                (SELECT MAX(char_length(r)) FROM unnest(refs) AS u(r)) AS width,
+                array_to_string(refs, E'\n') AS refs,
+                osm_id
+              FROM (SELECT way, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
+          ) AS q
+          WHERE way && !bbox! AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'motorway' THEN 38
@@ -1954,9 +1974,11 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            osm_id,
+            ST_AsEWKB(way) -- consistent order for disjoint ST_Dump parts sharing the keys above
         ) AS roads_text_ref
     properties:
+      cache-features: true
       minzoom: 13
   - id: roads-area-text-name
     geometry: point
@@ -1988,13 +2010,89 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: ways sharing the rendering-relevant tuple (highway, tunnel,
+      # construction, name, layer) are ST_LineMerge'd so one label is placed per
+      # logical road, not per OSM way. The aggregation grid is the metatile grid
+      # offset by half a metatile: the four "units" are the metatile shifted half
+      # a metatile to each corner, and a way is assigned to the unit whose cell
+      # contains its bbox centre. It merges only if -- the global consistency
+      # condition -- the way grown by the render buffer fits inside that cell
+      # grown by half a metatile (the 2x2 metatile block sharing the cell), so the
+      # merged geometry can never be selected by `way && !bbox!` in a metatile
+      # that does not also merge it. Hence the result is identical across
+      # metatiles and no avoid-edges is needed. Ways failing that test pass
+      # through unmerged via the UNION ALL. _link is kept in the GROUP BY
+      # (highway_raw) so a motorway is not pulled through its offramp; it is
+      # stripped only for the symbolizer. One-way arrows live in
+      # roads-direction-arrows because ST_LineMerge does not preserve orientation.
+      table: |-
+        (WITH dims AS ( -- metatiles are square and the render buffer is symmetric, so one of each
+            SELECT 0.5 * (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) AS half,   -- half a metatile
+                   ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)                    AS buffer  -- render buffer width
+        ),
+        units AS ( -- the four aggregation cells, centred on the metatile's corners
+            SELECT v.unit, ST_Translate(!unbuffered_bbox!, v.sx * dims.half, v.sy * dims.half) AS cell
+              FROM dims, (VALUES (1, -1.0, -1.0), (2, 1.0, -1.0), (3, -1.0, 1.0), (4, 1.0, 1.0)) AS v(unit, sx, sy)
+        ),
+        ways AS (
+            SELECT
+                l.way, l.osm_id, l.z_order, COALESCE(l.layer, 0) AS layer,
+                l.highway AS highway_raw,
+                CASE WHEN substr(l.highway, length(l.highway)-4, 5) = '_link' THEN substr(l.highway, 0, length(l.highway)-4) ELSE l.highway END AS highway,
+                CASE WHEN (l.tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR l.covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
+                l.construction, l.name,
+                -- unit the way merges into (NULL = stay unmerged): the cell containing its bbox
+                -- centre, but only if the way grown by the buffer fits in that cell grown by half a
+                -- metatile. +8 absorbs the float4 rounding of Mapnik's `way && !bbox!` selection.
+                (SELECT unit FROM units
+                  WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer + 8))) AS unit
+              FROM planet_osm_line l, dims
+              WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
+                AND l.highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
+                                  'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
+                AND l.name IS NOT NULL
+        ),
+        features AS (
+            -- mergeable ways: one ST_LineMerge per unit + rendering tuple
+            SELECT (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way,
+                   highway, tunnel, construction, name,
+                   MAX(z_order) AS z_order, layer, MIN(osm_id) AS osm_id
+              FROM ways WHERE unit IS NOT NULL
+              GROUP BY unit, highway_raw, highway, tunnel, construction, name, layer
+            UNION ALL
+            -- everything else passes through unmerged
+            SELECT way, highway, tunnel, construction, name, z_order, layer, osm_id
+              FROM ways WHERE unit IS NULL
+        )
+        SELECT way, highway, tunnel, construction, name
+          FROM features
+          WHERE way && !bbox!
+          ORDER BY
+            z_order DESC, -- put important roads first
+            layer, -- put top layered roads first
+            length(name) DESC, -- Try to fit big labels in first
+            name DESC, -- Force a consistent ordering between differently named streets
+            osm_id DESC, -- Force an ordering for streets of the same name, e.g. dualized roads
+            ST_AsEWKB(way) -- disjoint ST_Dump parts of one group share every key above; order them
+                           -- by geometry so Mapnik's feature-order collision resolution is identical
+                           -- in every metatile (the geometry is byte-identical across metatiles)
+        ) AS roads_text_name
+    properties:
+      cache-features: true
+      minzoom: 13
+  - id: roads-direction-arrows
+    geometry: linestring
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      # One-way arrows are rendered per original OSM way (not merged) because
+      # ST_LineMerge does not preserve direction. Split out of roads-text-name
+      # (issue #951) so the name labels can use merged geometry.
       table: |-
         (SELECT
             way,
-            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
-            CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
-            construction,
-            name,
+            CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END AS highway,
             CASE
               WHEN oneway IN ('yes', '-1') THEN oneway
               WHEN junction IN ('roundabout') AND (oneway IS NULL OR NOT oneway IN ('no', 'reversible')) THEN 'yes'
@@ -2002,19 +2100,15 @@ Layer:
           FROM planet_osm_line l
           WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
                             'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
-            AND (name IS NOT NULL
-              OR oneway IN ('yes', '-1')
-              OR junction IN ('roundabout'))
+            AND (oneway IN ('yes', '-1') OR junction IN ('roundabout'))
           ORDER BY
             z_order DESC, -- put important roads first
             COALESCE(layer, 0), -- put top layered roads first
-            length(name) DESC, -- Try to fit big labels in first
-            name DESC, -- Force a consistent ordering between differently named streets
             l.osm_id DESC -- Force an ordering for streets of the same name, e.g. dualized roads
-        ) AS roads_text_name
+        ) AS roads_direction_arrows
     properties:
       cache-features: true
-      minzoom: 13
+      minzoom: 16
   - id: paths-text-name
     geometry: linestring
     <<: *extents
@@ -2079,32 +2173,49 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: minor-road shields merged per (highway, ref, layer); same
+      # offset-grid aggregation as roads-text-ref.
       table: |-
-        (SELECT
-            way,
-            highway,
-            height,
-            width,
-            refs
+        (WITH dims AS ( -- metatiles are square and the render buffer is symmetric, so one of each
+            SELECT 0.5 * (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) AS half,   -- half a metatile
+                   ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)                    AS buffer  -- render buffer width
+        ),
+        units AS ( -- the four aggregation cells, centred on the metatile's corners
+            SELECT v.unit, ST_Translate(!unbuffered_bbox!, v.sx * dims.half, v.sy * dims.half) AS cell
+              FROM dims, (VALUES (1, -1.0, -1.0), (2, 1.0, -1.0), (3, -1.0, 1.0), (4, 1.0, 1.0)) AS v(unit, sx, sy)
+        ),
+        ways AS (
+            SELECT
+                l.way, l.osm_id, COALESCE(l.layer, 0) AS layer,
+                CASE WHEN l.highway IN ('unclassified', 'residential', 'track') THEN l.highway END AS highway,
+                l.ref,
+                (SELECT unit FROM units
+                  WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer + 8))) AS unit
+              FROM planet_osm_line l, dims
+              WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
+                AND l.highway IN ('unclassified', 'residential', 'track')
+                AND l.ref IS NOT NULL
+        ),
+        features AS (
+            SELECT (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way, highway, ref, MIN(osm_id) AS osm_id
+              FROM ways WHERE unit IS NOT NULL
+              GROUP BY unit, highway, ref, layer
+            UNION ALL
+            SELECT way, highway, ref, osm_id
+              FROM ways WHERE unit IS NULL
+        )
+        SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                osm_id,
-                way,
-                highway,
-                array_length(refs,1) AS height,
-                (SELECT MAX(char_length(ref)) FROM unnest(refs) AS u(ref)) AS width,
-                array_to_string(refs, E'\n') AS refs
-              FROM (
-                SELECT
-                    osm_id,
-                    way,
-                    CASE WHEN highway IN ('unclassified', 'residential', 'track') THEN highway END AS highway,
-                    string_to_array(ref, ';') AS refs
-                  FROM planet_osm_line
-                  WHERE highway IN ('unclassified', 'residential', 'track')
-                    AND ref IS NOT NULL
-              ) AS p) AS q
-          WHERE height <= 4 AND width <= 11
+                way, highway,
+                array_length(refs, 1) AS height,
+                (SELECT MAX(char_length(r)) FROM unnest(refs) AS u(r)) AS width,
+                array_to_string(refs, E'\n') AS refs,
+                osm_id
+              FROM (SELECT way, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
+          ) AS q
+          WHERE way && !bbox! AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'unclassified' THEN 33
@@ -2114,9 +2225,11 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            osm_id,
+            ST_AsEWKB(way) -- consistent order for disjoint ST_Dump parts sharing the keys above
         ) AS roads_text_ref_minor
     properties:
+      cache-features: true
       minzoom: 15
   - id: text-poly-low-zoom
     geometry: point
@@ -2427,21 +2540,3 @@ Layer:
       table: *amenity_low_priority_sql
     properties:
       minzoom: 17
-  # --- !unbuffered_bbox! demonstration layers (see style/unbuffered-bbox-demo.mss) ---
-  # Red traces the unbuffered (meta)tile boundary; green traces the buffered
-  # !bbox!. With Map buffer-size > 0 you should see a bit of red on the tile
-  # seams and no green at all.
-  - id: unbuffered-bbox-demo
-    geometry: line
-    <<: *extents
-    Datasource:
-      <<: *osm2pgsql
-      table: |-
-        (SELECT ST_Boundary(!unbuffered_bbox!) AS way) AS unbuffered_bbox_demo
-  - id: bbox-demo
-    geometry: line
-    <<: *extents
-    Datasource:
-      <<: *osm2pgsql
-      table: |-
-        (SELECT ST_Boundary(!bbox!) AS way) AS bbox_demo
