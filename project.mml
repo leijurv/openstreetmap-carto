@@ -2064,9 +2064,9 @@ Layer:
               FROM (
                 SELECT ST_Dump(ST_LineMerge(ST_Collect(way))) AS dump,
                        highway, tunnel, construction, name,
-                       MAX(z_order) AS z_order, layer, MIN(osm_id) AS osm_id
+                       z_order, layer, MIN(osm_id) AS osm_id
                   FROM ways WHERE unit IS NOT NULL
-                  GROUP BY unit, highway_raw, highway, tunnel, construction, name, layer
+                  GROUP BY unit, highway_raw, highway, tunnel, construction, name, layer, z_order
               ) m
             UNION ALL
             -- everything else passes through unmerged
