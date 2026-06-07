@@ -1943,22 +1943,25 @@ Layer:
                 AND l.ref IS NOT NULL
         ),
         features AS (
-            SELECT (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way, highway, ref, MIN(osm_id) AS osm_id
-              FROM ways WHERE unit IS NOT NULL
-              GROUP BY unit, highway, ref, layer
+            SELECT (m.dump).geom AS way, (m.dump).path[1] AS part, highway, ref, osm_id
+              FROM (
+                SELECT ST_Dump(ST_LineMerge(ST_Collect(way))) AS dump, highway, ref, MIN(osm_id) AS osm_id
+                  FROM ways WHERE unit IS NOT NULL
+                  GROUP BY unit, highway, ref, layer
+              ) m
             UNION ALL
-            SELECT way, highway, ref, osm_id
+            SELECT way, 1 AS part, highway, ref, osm_id
               FROM ways WHERE unit IS NULL
         )
         SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                way, highway,
+                way, part, highway,
                 array_length(refs, 1) AS height,
                 (SELECT MAX(char_length(r)) FROM unnest(refs) AS u(r)) AS width,
                 array_to_string(refs, E'\n') AS refs,
                 osm_id
-              FROM (SELECT way, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
+              FROM (SELECT way, part, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
           ) AS q
           WHERE way && !bbox! AND height <= 4 AND width <= 11
           ORDER BY
@@ -1975,7 +1978,7 @@ Layer:
             width DESC,
             refs,
             osm_id,
-            ST_AsEWKB(way) -- consistent order for disjoint ST_Dump parts sharing the keys above
+            part -- consistent order for disjoint ST_Dump parts sharing the keys above
         ) AS roads_text_ref
     properties:
       cache-features: true
@@ -2054,15 +2057,20 @@ Layer:
                 AND l.name IS NOT NULL
         ),
         features AS (
-            -- mergeable ways: one ST_LineMerge per unit + rendering tuple
-            SELECT (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way,
-                   highway, tunnel, construction, name,
-                   MAX(z_order) AS z_order, layer, MIN(osm_id) AS osm_id
-              FROM ways WHERE unit IS NOT NULL
-              GROUP BY unit, highway_raw, highway, tunnel, construction, name, layer
+            -- mergeable ways: ST_LineMerge per unit + rendering tuple, then split
+            -- into connected parts; ST_Dump's path numbers them.
+            SELECT (m.dump).geom AS way, (m.dump).path[1] AS part,
+                   highway, tunnel, construction, name, z_order, layer, osm_id
+              FROM (
+                SELECT ST_Dump(ST_LineMerge(ST_Collect(way))) AS dump,
+                       highway, tunnel, construction, name,
+                       MAX(z_order) AS z_order, layer, MIN(osm_id) AS osm_id
+                  FROM ways WHERE unit IS NOT NULL
+                  GROUP BY unit, highway_raw, highway, tunnel, construction, name, layer
+              ) m
             UNION ALL
             -- everything else passes through unmerged
-            SELECT way, highway, tunnel, construction, name, z_order, layer, osm_id
+            SELECT way, 1 AS part, highway, tunnel, construction, name, z_order, layer, osm_id
               FROM ways WHERE unit IS NULL
         )
         SELECT way, highway, tunnel, construction, name
@@ -2074,9 +2082,9 @@ Layer:
             length(name) DESC, -- Try to fit big labels in first
             name DESC, -- Force a consistent ordering between differently named streets
             osm_id DESC, -- Force an ordering for streets of the same name, e.g. dualized roads
-            ST_AsEWKB(way) -- disjoint ST_Dump parts of one group share every key above; order them
-                           -- by geometry so Mapnik's feature-order collision resolution is identical
-                           -- in every metatile (the geometry is byte-identical across metatiles)
+            part -- disjoint ST_Dump parts of one group share every key above; ST_Dump numbers them
+                 -- deterministically, so Mapnik's feature-order collision resolution is identical in
+                 -- every metatile (the merged geometry is byte-identical across metatiles)
         ) AS roads_text_name
     properties:
       cache-features: true
@@ -2198,22 +2206,25 @@ Layer:
                 AND l.ref IS NOT NULL
         ),
         features AS (
-            SELECT (ST_Dump(ST_LineMerge(ST_Collect(way)))).geom AS way, highway, ref, MIN(osm_id) AS osm_id
-              FROM ways WHERE unit IS NOT NULL
-              GROUP BY unit, highway, ref, layer
+            SELECT (m.dump).geom AS way, (m.dump).path[1] AS part, highway, ref, osm_id
+              FROM (
+                SELECT ST_Dump(ST_LineMerge(ST_Collect(way))) AS dump, highway, ref, MIN(osm_id) AS osm_id
+                  FROM ways WHERE unit IS NOT NULL
+                  GROUP BY unit, highway, ref, layer
+              ) m
             UNION ALL
-            SELECT way, highway, ref, osm_id
+            SELECT way, 1 AS part, highway, ref, osm_id
               FROM ways WHERE unit IS NULL
         )
         SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                way, highway,
+                way, part, highway,
                 array_length(refs, 1) AS height,
                 (SELECT MAX(char_length(r)) FROM unnest(refs) AS u(r)) AS width,
                 array_to_string(refs, E'\n') AS refs,
                 osm_id
-              FROM (SELECT way, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
+              FROM (SELECT way, part, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
           ) AS q
           WHERE way && !bbox! AND height <= 4 AND width <= 11
           ORDER BY
@@ -2226,7 +2237,7 @@ Layer:
             width DESC,
             refs,
             osm_id,
-            ST_AsEWKB(way) -- consistent order for disjoint ST_Dump parts sharing the keys above
+            part -- consistent order for disjoint ST_Dump parts sharing the keys above
         ) AS roads_text_ref_minor
     properties:
       cache-features: true
