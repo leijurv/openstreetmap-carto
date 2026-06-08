@@ -1936,7 +1936,7 @@ Layer:
                 l.ref,
                 (SELECT unit FROM units
                   WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
-                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer + 8))) AS unit
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer))) AS unit
               FROM planet_osm_line l, dims
               WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
                 AND (l.highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR l.aeroway IN ('runway', 'taxiway'))
@@ -1963,7 +1963,7 @@ Layer:
                 osm_id
               FROM (SELECT way, part, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
           ) AS q
-          WHERE way && !bbox! AND height <= 4 AND width <= 11
+          WHERE ST_Intersects(way, !bbox!) AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'motorway' THEN 38
@@ -2046,10 +2046,12 @@ Layer:
                 l.construction, l.name,
                 -- unit the way merges into (NULL = stay unmerged): the cell containing its bbox
                 -- centre, but only if the way grown by the buffer fits in that cell grown by half a
-                -- metatile. +8 absorbs the float4 rounding of Mapnik's `way && !bbox!` selection.
+                -- metatile. That keeps the merged geometry a full buffer inside the 2x2 owner block,
+                -- so no other metatile's render bbox can reach it -- enforced exactly (in float8) by
+                -- the ST_Intersects test on the final WHERE below.
                 (SELECT unit FROM units
                   WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
-                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer + 8))) AS unit
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer))) AS unit
               FROM planet_osm_line l, dims
               WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
                 AND l.highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
@@ -2075,7 +2077,14 @@ Layer:
         )
         SELECT way, highway, tunnel, construction, name
           FROM features
-          WHERE way && !bbox!
+          -- ST_Intersects (exact float8), NOT `way && !bbox!`: the `&&` operator compares float4
+          -- bboxes rounded OUTWARD, so it is over-inclusive (by up to a few metres) and would let a
+          -- metatile draw a merged road it did not itself merge -- a seam inconsistency. The covering
+          -- condition above keeps a merged road a full buffer inside its 2x2 owner block, so no other
+          -- metatile's render extent truly reaches it, but only an exact (float8) test sees that.
+          -- `&&` is not kept as a prefilter: it is on a CTE (no index to exploit) and is implied by
+          -- ST_Intersects anyway. See [#951].
+          WHERE ST_Intersects(way, !bbox!)
           ORDER BY
             z_order DESC, -- put important roads first
             layer, -- put top layered roads first
@@ -2199,7 +2208,7 @@ Layer:
                 l.ref,
                 (SELECT unit FROM units
                   WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
-                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer + 8))) AS unit
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer))) AS unit
               FROM planet_osm_line l, dims
               WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
                 AND l.highway IN ('unclassified', 'residential', 'track')
@@ -2226,7 +2235,7 @@ Layer:
                 osm_id
               FROM (SELECT way, part, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
           ) AS q
-          WHERE way && !bbox! AND height <= 4 AND width <= 11
+          WHERE ST_Intersects(way, !bbox!) AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'unclassified' THEN 33
