@@ -157,15 +157,19 @@ local tables = {}
 local columns_in_point_table = {}
 local columns_in_non_point_tables = {}
 
--- Expire output for the coalesced-roads generalization (issue #951). It
--- records, at this zoom, the tiles whose line geometry changed during an
--- update; osm2pgsql-gen uses it to incrementally re-merge only the affected
--- roads. Only effective for updatable (slim, non --drop) imports; harmless
--- otherwise.
+-- Expire output for the coalesced-roads generalization (issue #951). On each
+-- update it records the exact endpoints (start and end point) of every road
+-- whose geometry was added, modified, or deleted, as POINT rows in
+-- planet_osm_coalesced_roads_endpoints. osm2pgsql-gen consumes those points and
+-- re-merges only the connected road components that actually changed, instead
+-- of re-scanning everything inside a dirty tile. Only effective for updatable
+-- (slim, non --drop) imports; harmless otherwise.
 local coalesced_expire = osm2pgsql.define_expire_output({
+    -- 'maxzoom' is unused for an endpoint-only output (no tiles are written),
+    -- but the expire-output parser still requires the field.
     maxzoom = 18,
     schema = SCHEMA,
-    table = PREFIX .. 'expire_roads',
+    endpoint_table = PREFIX .. 'coalesced_roads_endpoints',
 })
 
 -- Combine the table definitions and the column definitions from above to
@@ -740,12 +744,20 @@ end
 function osm2pgsql.process_gen()
     osm2pgsql.run_gen('grouped-linemerge', {
         name = 'coalesced_roads',
+        schema = SCHEMA,
         src_table = PREFIX .. 'line',
         dest_table = PREFIX .. 'coalesced_roads',
         geom_column = 'way',
         group_by_columns = 'highway, aeroway, name, ref, layer, tunnel, covered, construction',
         where = '(name IS NOT NULL OR ref IS NOT NULL) AND (highway IS NOT NULL OR aeroway IS NOT NULL)',
-        expire_list = PREFIX .. 'expire_roads',
-        zoom = 18,
+        -- In append mode (osm2pgsql-gen -a) consume the changed-way endpoints
+        -- recorded by the expire output above and re-merge only the connected
+        -- components touched by those points. Required in append mode.
+        endpoint_table = PREFIX .. 'coalesced_roads_endpoints',
+        -- Create the functional ST_StartPoint/ST_EndPoint indexes on the source
+        -- (planet_osm_line) and destination tables in create mode; the
+        -- incremental walk needs them. Set to false to declare them yourself in
+        -- indexes.yml instead.
+        create_indexes = true,
     })
 end
