@@ -1865,32 +1865,52 @@ Layer:
     <<: *extents
     Datasource:
       <<: *osm2pgsql
+      # Issue #951: low-zoom motorway/trunk/primary/secondary shields merged per
+      # (highway, ref, layer) so one shield is placed per logical road, not per OSM
+      # way (e.g. ref "I 5" is 3661 separate ways). Same offset-grid aggregation as
+      # roads-text-ref, but over the generalized planet_osm_roads table.
       table: |-
-        (SELECT
-            way,
-            highway,
-            height,
-            width,
-            refs
+        (WITH dims AS ( -- metatiles are square and the render buffer is symmetric, so one of each
+            SELECT 0.5 * (ST_XMax(!unbuffered_bbox!) - ST_XMin(!unbuffered_bbox!)) AS half,   -- half a metatile
+                   ST_XMax(!bbox!) - ST_XMax(!unbuffered_bbox!)                    AS buffer  -- render buffer width
+        ),
+        units AS ( -- the four aggregation cells, centred on the metatile's corners
+            SELECT v.unit, ST_Translate(!unbuffered_bbox!, v.sx * dims.half, v.sy * dims.half) AS cell
+              FROM dims, (VALUES (1, -1.0, -1.0), (2, 1.0, -1.0), (3, -1.0, 1.0), (4, 1.0, 1.0)) AS v(unit, sx, sy)
+        ),
+        ways AS (
+            SELECT
+                l.way, l.osm_id, COALESCE(l.layer, 0) AS layer, l.highway, l.ref,
+                (SELECT unit FROM units
+                  WHERE ST_Within(ST_Centroid(ST_Envelope(l.way)), cell)
+                    AND ST_Covers(ST_Expand(cell, dims.half), ST_Expand(l.way, dims.buffer))) AS unit
+              FROM planet_osm_roads l, dims
+              WHERE l.way && ST_Expand(!unbuffered_bbox!, dims.half)
+                AND l.highway IN ('motorway', 'trunk', 'primary', 'secondary')
+                AND l.ref IS NOT NULL
+        ),
+        features AS (
+            SELECT (m.dump).geom AS way, (m.dump).path[1] AS part, highway, ref, osm_id
+              FROM (
+                SELECT ST_Dump(ST_LineMerge(ST_Collect(way))) AS dump, highway, ref, MIN(osm_id) AS osm_id
+                  FROM ways WHERE unit IS NOT NULL
+                  GROUP BY unit, highway, ref, layer
+              ) m
+            UNION ALL
+            SELECT way, 1 AS part, highway, ref, osm_id
+              FROM ways WHERE unit IS NULL
+        )
+        SELECT way, highway, height, width, refs
           FROM (
             SELECT
-                way,
-                osm_id,
-                highway,
-                array_length(refs,1) AS height,
-                (SELECT MAX(char_length(ref)) FROM unnest(refs) AS u(ref)) AS width,
-                array_to_string(refs, E'\n') AS refs
-              FROM (
-                SELECT
-                    way,
-                    osm_id,
-                    highway,
-                    string_to_array(ref, ';') AS refs
-                FROM planet_osm_roads
-                  WHERE highway IN ('motorway', 'trunk', 'primary', 'secondary')
-                  AND ref IS NOT NULL
-              ) AS p) AS q
-          WHERE height <= 4 AND width <= 11
+                way, part, highway,
+                array_length(refs, 1) AS height,
+                (SELECT MAX(char_length(r)) FROM unnest(refs) AS u(r)) AS width,
+                array_to_string(refs, E'\n') AS refs,
+                osm_id
+              FROM (SELECT way, part, highway, string_to_array(ref, ';') AS refs, osm_id FROM features) AS p
+          ) AS q
+          WHERE ST_Intersects(way, !bbox!) AND height <= 4 AND width <= 11
           ORDER BY
             CASE
               WHEN highway = 'motorway' THEN 38
@@ -1901,9 +1921,11 @@ Layer:
             height DESC,
             width DESC,
             refs,
-            osm_id
+            osm_id,
+            part -- consistent order for disjoint ST_Dump parts sharing the keys above
         ) AS roads_text_ref_low_zoom
     properties:
+      cache-features: true
       minzoom: 10
       maxzoom: 12
   - id: roads-text-ref
