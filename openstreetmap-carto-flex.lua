@@ -157,19 +157,20 @@ local tables = {}
 local columns_in_point_table = {}
 local columns_in_non_point_tables = {}
 
--- Expire output for the coalesced-roads generalization (issue #951). On each
--- update it records the exact endpoints (start and end point) of every road
--- whose geometry was added, modified, or deleted, as POINT rows in
--- planet_osm_coalesced_roads_endpoints. osm2pgsql-gen consumes those points and
--- re-merges only the connected road components that actually changed, instead
--- of re-scanning everything inside a dirty tile. Only effective for updatable
--- (slim, non --drop) imports; harmless otherwise.
+-- Zoom for the coalesced-roads change tracking. Used both for the expire
+-- output (below) and for consuming it in process_gen (at the end of this
+-- file); they must match. High, so the changed regions stay small.
+local COALESCED_ZOOM = 18
+
+-- Expire output for the coalesced-roads generalization (issue #951). It
+-- records, at this zoom, the tiles whose line geometry changed during an
+-- update; osm2pgsql-gen uses it to incrementally re-merge only the affected
+-- roads. Only effective for updatable (slim, non --drop) imports; harmless
+-- otherwise.
 local coalesced_expire = osm2pgsql.define_expire_output({
-    -- 'maxzoom' is unused for an endpoint-only output (no tiles are written),
-    -- but the expire-output parser still requires the field.
-    maxzoom = 18,
+    maxzoom = COALESCED_ZOOM,
     schema = SCHEMA,
-    endpoint_table = PREFIX .. 'coalesced_roads_endpoints',
+    table = PREFIX .. 'expire_roads',
 })
 
 -- Combine the table definitions and the column definitions from above to
@@ -741,23 +742,173 @@ end
 -- label/shield layers query. Grouping by the base columns is intentionally
 -- "over-selective": it never merges two ways that would render differently,
 -- at the cost of occasionally not merging two that render the same.
+--
+-- This is implemented entirely in SQL via osm2pgsql.run_sql(), so it needs no
+-- custom osm2pgsql generalizer -- a stock osm2pgsql-gen is enough. On create it
+-- does one global GROUP BY + ST_LineMerge over planet_osm_line. On update it
+-- consumes the tiles expired by the import, walks each affected connected
+-- component out along shared endpoints (a recursive CTE), and re-merges only
+-- those, matching on exact endpoint equality via the functional btree indexes.
 function osm2pgsql.process_gen()
-    osm2pgsql.run_gen('grouped-linemerge', {
-        name = 'coalesced_roads',
-        schema = SCHEMA,
-        src_table = PREFIX .. 'line',
-        dest_table = PREFIX .. 'coalesced_roads',
-        geom_column = 'way',
-        group_by_columns = 'highway, aeroway, name, ref, layer, tunnel, covered, construction',
-        where = '(name IS NOT NULL OR ref IS NOT NULL) AND (highway IS NOT NULL OR aeroway IS NOT NULL)',
-        -- In append mode (osm2pgsql-gen -a) consume the changed-way endpoints
-        -- recorded by the expire output above and re-merge only the connected
-        -- components touched by those points. Required in append mode.
-        endpoint_table = PREFIX .. 'coalesced_roads_endpoints',
-        -- Create the functional ST_StartPoint/ST_EndPoint indexes on the source
-        -- (planet_osm_line) and destination tables in create mode; the
-        -- incremental walk needs them. Set to false to declare them yourself in
-        -- indexes.yml instead.
-        create_indexes = true,
-    })
+    -- Lines merge only when ALL of these columns are equal (NULLs compare
+    -- equal). Keep this list in sync with the planet_osm_coalesced_roads table.
+    local group = { 'highway', 'aeroway', 'name', 'ref',
+                    'layer', 'tunnel', 'covered', 'construction' }
+    -- Only roads that carry a label or a shield take part.
+    local where = '((name IS NOT NULL OR ref IS NOT NULL)'
+        .. ' AND (highway IS NOT NULL OR aeroway IS NOT NULL))'
+
+    local function cols(sep, fn)
+        local t = {}
+        for _, c in ipairs(group) do t[#t + 1] = fn(c) end
+        return table.concat(t, sep)
+    end
+    local function q(name) return string.format('"%s"."%s"', SCHEMA, name) end
+
+    local V = {
+        src      = q(PREFIX .. 'line'),
+        dest     = q(PREFIX .. 'coalesced_roads'),
+        expire   = q(PREFIX .. 'expire_roads'),
+        src_idx  = PREFIX .. 'line',
+        dest_idx = PREFIX .. 'coalesced_roads',
+        geom     = 'way',
+        zoom     = COALESCED_ZOOM,
+        where    = where,
+        group_cols      = cols(', ', function(c) return '"' .. c .. '"' end),
+        group_cols_l    = cols(', ', function(c) return 'l."' .. c .. '"' end),
+        group_cols_gk   = cols(', ', function(c) return '"' .. c .. '" AS "gk_' .. c .. '"' end),
+        group_cols_l_gk = cols(', ', function(c) return 'l."' .. c .. '" AS "gk_' .. c .. '"' end),
+        group_join      = cols(' AND ', function(c)
+            return 'l."' .. c .. '" IS NOT DISTINCT FROM n."gk_' .. c .. '"' end),
+        group_join_dn   = cols(' AND ', function(c)
+            return 'd."' .. c .. '" IS NOT DISTINCT FROM n."gk_' .. c .. '"' end),
+        -- Column DDL for (re)creating the destination table from scratch. Keep
+        -- the types in sync with the define_table() for planet_osm_coalesced_roads.
+        create_cols     = cols(', ', function(c)
+            return '"' .. c .. '" ' .. (c == 'layer' and 'int4' or 'text') end),
+    }
+    local function sql(s)
+        return (s:gsub('{([%w_]+)}', function(k)
+            local v = V[k]
+            if v == nil then error("unknown template key '" .. k .. "'") end
+            return tostring(v)
+        end))
+    end
+
+    if osm2pgsql.mode == 'create' then
+        -- Build the destination table from scratch (it is normally created by
+        -- the import, but CREATE TABLE IF NOT EXISTS lets the generalizer also
+        -- rebuild it standalone), then do one global GROUP BY + ST_LineMerge
+        -- over the whole source table. Each run_sql logs its own duration, so
+        -- the create breaks down into table+merge / gist / endpoint indexes.
+        osm2pgsql.run_sql({
+            description = 'coalesced roads: create table + merge',
+            transaction = true,
+            sql = {
+                sql([[CREATE TABLE IF NOT EXISTS {dest} (
+ {create_cols}, "{geom}" geometry(LineString, 3857) NOT NULL)]]),
+                sql('TRUNCATE {dest}'),
+                sql([[INSERT INTO {dest} ({group_cols}, "{geom}")
+ SELECT {group_cols}, (ST_Dump(ST_LineMerge(ST_Collect("{geom}")))).geom
+   FROM {src} WHERE {where} GROUP BY {group_cols}]]),
+            }
+        })
+        osm2pgsql.run_sql({
+            description = 'coalesced roads: analyze',
+            sql = { sql('ANALYZE {dest}') }
+        })
+        -- GiST index for render-time bbox queries and the append region delete.
+        -- Same name the import gives it, so this is idempotent with the import.
+        osm2pgsql.run_sql({
+            description = 'coalesced roads: way gist index',
+            sql = { sql([[CREATE INDEX IF NOT EXISTS "{dest_idx}_way_idx"
+ ON {dest} USING gist ("{geom}")]]) }
+        })
+        -- Functional endpoint indexes that make the incremental walk and the
+        -- by-endpoint delete fast.
+        osm2pgsql.run_sql({
+            description = 'coalesced roads: destination endpoint indexes',
+            sql = {
+                sql([[CREATE INDEX IF NOT EXISTS "{dest_idx}_glm_startpt"
+ ON {dest} USING btree (ST_StartPoint("{geom}"))]]),
+                sql([[CREATE INDEX IF NOT EXISTS "{dest_idx}_glm_endpt"
+ ON {dest} USING btree (ST_EndPoint("{geom}"))]]),
+            }
+        })
+        osm2pgsql.run_sql({
+            description = 'coalesced roads: source endpoint indexes',
+            sql = {
+                sql([[CREATE INDEX IF NOT EXISTS "{src_idx}_glm_startpt"
+ ON {src} USING btree (ST_StartPoint("{geom}")) WHERE {where}]]),
+                sql([[CREATE INDEX IF NOT EXISTS "{src_idx}_glm_endpt"
+ ON {src} USING btree (ST_EndPoint("{geom}")) WHERE {where}]]),
+            }
+        })
+    else
+        -- Incremental: consume the expired tiles, walk each affected connected
+        -- component out from there, and re-merge only those. Everything is one
+        -- run_sql with transaction = true so the ON COMMIT DROP temp tables
+        -- survive across the steps; if_has_rows makes it a no-op when nothing
+        -- expired.
+        osm2pgsql.run_sql({
+            description = 'coalesced roads: incremental update',
+            transaction = true,
+            if_has_rows = sql('SELECT 1 FROM {expire} WHERE zoom = {zoom} LIMIT 1'),
+            sql = {
+                -- 1. expired tiles -> changed-region envelopes
+                sql([[CREATE TEMP TABLE _glm_region ON COMMIT DROP AS
+ WITH expired AS (DELETE FROM {expire} WHERE zoom = {zoom} RETURNING x, y)
+ SELECT ST_TileEnvelope({zoom}, x, y) AS env FROM expired]]),
+                'ANALYZE _glm_region',
+                -- 2. walk: seed from lines in the region, flood shared endpoints
+                --    within the same grouping key (dedup on (group, point)).
+                sql([[CREATE TEMP TABLE _glm_nodes ON COMMIT DROP AS
+WITH RECURSIVE
+seeds AS (
+  SELECT {group_cols_l}, l."{geom}"
+    FROM _glm_region r
+    JOIN {src} l ON l."{geom}" && r.env AND ST_Intersects(l."{geom}", r.env)
+   WHERE {where}
+),
+nodes AS (
+  SELECT b.* FROM (
+    SELECT {group_cols_gk}, ST_StartPoint("{geom}") AS pt FROM seeds
+    UNION
+    SELECT {group_cols_gk}, ST_EndPoint("{geom}") FROM seeds
+  ) b
+  UNION
+  SELECT {group_cols_l_gk},
+    CASE WHEN ST_StartPoint(l."{geom}") = n.pt
+         THEN ST_EndPoint(l."{geom}") ELSE ST_StartPoint(l."{geom}") END
+    FROM nodes n
+    JOIN {src} l
+      ON {group_join}
+     AND ( ST_StartPoint(l."{geom}") = n.pt OR ST_EndPoint(l."{geom}") = n.pt )
+     AND {where}
+)
+SELECT * FROM nodes]]),
+                'ANALYZE _glm_nodes',
+                -- 3. collect the member lines of those components
+                sql([[CREATE TEMP TABLE _glm_ways ON COMMIT DROP AS
+SELECT DISTINCT ON (l.ctid) {group_cols_l}, l."{geom}"
+  FROM _glm_nodes n
+  JOIN {src} l
+    ON {group_join}
+   AND ( ST_StartPoint(l."{geom}") = n.pt OR ST_EndPoint(l."{geom}") = n.pt )
+   AND {where}
+ ORDER BY l.ctid]]),
+                -- 4a. delete stale outputs by reached node (exact endpoint)
+                sql([[DELETE FROM {dest} d USING _glm_nodes n
+ WHERE {group_join_dn}
+   AND ( ST_StartPoint(d."{geom}") = n.pt OR ST_EndPoint(d."{geom}") = n.pt )]]),
+                -- 4b. clean up components that vanished entirely (region pass)
+                sql([[DELETE FROM {dest} d USING _glm_region r
+ WHERE d."{geom}" && r.env AND ST_Intersects(d."{geom}", r.env)]]),
+                -- 5. regenerate the affected components
+                sql([[INSERT INTO {dest} ({group_cols}, "{geom}")
+ SELECT {group_cols}, (ST_Dump(ST_LineMerge(ST_Collect("{geom}")))).geom
+   FROM _glm_ways GROUP BY {group_cols}]]),
+            }
+        })
+    end
 end

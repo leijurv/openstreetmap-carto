@@ -62,15 +62,16 @@ EOF
   # Building the coalesced-roads table (issue #951): connected road segments
   # that share the same rendering-relevant attributes are merged into single
   # lines in planet_osm_coalesced_roads, which the road label/shield layers
-  # query. Built with the experimental osm2pgsql-gen (grouped-linemerge).
-  if command -v osm2pgsql-gen >/dev/null 2>&1; then
-    echo "Building coalesced roads (osm2pgsql-gen)"
-    osm2pgsql-gen \
+  # query. This MUST succeed: project.mml reads planet_osm_coalesced_roads, so
+  # a missing or failed build would leave road labels/shields querying a
+  # nonexistent or empty table. Fail loudly rather than degrade silently.
+  echo "Building coalesced roads (osm2pgsql-gen)"
+  osm2pgsql-gen \
     --database gis \
-    --style openstreetmap-carto-flex.lua
-  else
-    echo "osm2pgsql-gen not found; skipping planet_osm_coalesced_roads (road labels/shields will not render)"
-  fi
+    --style openstreetmap-carto-flex.lua || {
+    echo "ERROR: osm2pgsql-gen failed or is not installed; cannot build planet_osm_coalesced_roads" >&2
+    exit 1
+  }
 
   # Downloading and importing needed shapefiles
   scripts/get-external-data.py $EXTERNAL_DATA_SCRIPT_FLAGS

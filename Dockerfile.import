@@ -1,7 +1,12 @@
 FROM ubuntu:noble
 
-ARG OSM2PGSQL_REPO=https://github.com/leijurv/osm2pgsql.git
-ARG OSM2PGSQL_REF=grouped-linemerge
+# osm2pgsql itself comes from the distro package (used for the import). The
+# coalesced-roads generalization (issue #951) additionally needs osm2pgsql-gen,
+# which the distro package does not ship, so we build just that one binary from
+# upstream osm2pgsql. It uses only stock features (run_sql + tile expiry), so a
+# released upstream version works -- no fork required.
+ARG OSM2PGSQL_REPO=https://github.com/osm2pgsql-dev/osm2pgsql.git
+ARG OSM2PGSQL_REF=2.2.0
 
 RUN apt-get update && apt-get install --no-install-recommends -y \
     osm2pgsql gdal-bin python3-psycopg2 python3-yaml curl unzip \
