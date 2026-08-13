@@ -2387,8 +2387,8 @@
   [feature = 'tourism_hotel'][zoom >= 17],
   [feature = 'tourism_motel'][zoom >= 17],
   [feature = 'tourism_hostel'][zoom >= 17],
-  [feature = 'tourism_chalet'][zoom >= 17],
-  [feature = 'tourism_guest_house'][zoom >= 17],
+  [feature = 'tourism_chalet'][zoom >= 18],
+  [feature = 'tourism_guest_house'][zoom >= 18],
   [feature = 'tourism_apartment'][zoom >= 18],
   [feature = 'tourism_wilderness_hut'][zoom >= 14],
   [feature = 'tourism_camp_site'][zoom >= 17],
@@ -2458,8 +2458,8 @@
     }
   }
 
-  [feature = 'leisure_marina'][zoom >= 15] {
-    [zoom >= 10][way_pixels > 3000],
+  [feature = 'leisure_marina'] {
+    [zoom >= 15][way_pixels > 3000],
     [zoom >= 17] {
       text-name: "[name]";
       text-size: @landcover-font-size;
