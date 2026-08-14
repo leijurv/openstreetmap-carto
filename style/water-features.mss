@@ -1,8 +1,7 @@
 @breakwater-color: #aaa; /* Also for groyne */
 @dam: #adadad;
-@dam-line: #444444;
+@dam-line: #5e5e5e;
 @dam-line-low-zoom: #787878;
-@dam-line-mid-zoom: #5e5e5e;
 @weir-line: #aaa;
 @lock-gate: #aaa;
 @lock-gate-line: #aaa;
@@ -15,10 +14,7 @@
         line-width: 1;
         line-color: @dam-line-low-zoom;
         line-join: round;
-        [zoom >= 15] {
-          line-width: 1.5;
-          [zoom >= 16] { line-width: 2; }
-        }
+        [zoom >= 15] { line-color: @dam-line; }
       }
     }
     #water-barriers-line[zoom >= 13][zoom < 15] {
@@ -32,7 +28,7 @@
        distinguishing linear dams from polygon dams */
     #water-barriers-line[zoom >= 15] {
       casing/line-width: 2.6;
-      casing/line-color: @dam-line-mid-zoom;
+      casing/line-color: @dam-line;
       casing/line-join: round;
       line-width: 1;
       line-color: @dam;
