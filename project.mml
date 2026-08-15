@@ -496,7 +496,7 @@ Layer:
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
-                NULL AS service,
+                CASE WHEN service IN ('spur', 'siding', 'yard') THEN 'INT-minor' END AS service,
                 NULL AS link,
                 CASE
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
@@ -740,7 +740,7 @@ Layer:
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
-                NULL AS service,
+                CASE WHEN service IN ('spur', 'siding', 'yard') THEN 'INT-minor' END AS service,
                 NULL AS link,
                 CASE
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
@@ -905,7 +905,7 @@ Layer:
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
-                NULL AS service,
+                CASE WHEN service IN ('spur', 'siding', 'yard') THEN 'INT-minor' END AS service,
                 NULL AS link,
                 CASE
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'

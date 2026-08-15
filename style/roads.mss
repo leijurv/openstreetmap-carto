@@ -2653,7 +2653,11 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
       [zoom >= 12] {
         line-color: #ccc;
         [zoom >= 10] { line-color: #aaa; }
-        [zoom >= 13] { line-color: #666; }
+        [zoom >= 13] {
+          line-color: #666;
+          /* Spur, siding and yard trackage is de-emphasised relative to running lines */
+          [service = 'INT-minor'] { line-color: #999; }
+        }
         line-width: 1;
         [zoom >= 13] { line-width: 2; }
         [preserved = 'yes'][zoom >= 13] {
