@@ -1092,14 +1092,24 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        (SELECT
-            way,
+        (SELECT way, admin_level FROM (
+          SELECT
+            CASE WHEN ST_XMax(way) > 20037507.84 OR ST_XMin(way) < -20037507.84
+              THEN (SELECT ST_LineMerge(ST_Collect(s.geom))
+                      FROM ST_DumpSegments(way) s
+                     WHERE NOT (abs(abs(ST_X(ST_StartPoint(s.geom))) - 20037508.342789244) < 0.5
+                            AND abs(abs(ST_X(ST_EndPoint(s.geom)))   - 20037508.342789244) < 0.5))
+              ELSE way
+            END AS way,
             admin_level
           FROM planet_osm_roads
           WHERE boundary = 'administrative'
             AND admin_level IN ('0', '1', '2', '3', '4')
             AND osm_id < 0
-          ORDER BY admin_level DESC
+            AND way && !bbox!
+        ) q
+        WHERE way IS NOT NULL AND NOT ST_IsEmpty(way)
+        ORDER BY admin_level DESC
         ) AS admin_low_zoom
     properties:
       minzoom: 4
@@ -1110,14 +1120,24 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        (SELECT
-            way,
+        (SELECT way, admin_level FROM (
+          SELECT
+            CASE WHEN ST_XMax(way) > 20037507.84 OR ST_XMin(way) < -20037507.84
+              THEN (SELECT ST_LineMerge(ST_Collect(s.geom))
+                      FROM ST_DumpSegments(way) s
+                     WHERE NOT (abs(abs(ST_X(ST_StartPoint(s.geom))) - 20037508.342789244) < 0.5
+                            AND abs(abs(ST_X(ST_EndPoint(s.geom)))   - 20037508.342789244) < 0.5))
+              ELSE way
+            END AS way,
             admin_level
           FROM planet_osm_roads
           WHERE boundary = 'administrative'
             AND admin_level IN ('0', '1', '2', '3', '4', '5', '6', '7', '8')
             AND osm_id < 0
-          ORDER BY admin_level DESC
+            AND way && !bbox!
+        ) q
+        WHERE way IS NOT NULL AND NOT ST_IsEmpty(way)
+        ORDER BY admin_level DESC
         ) AS admin_mid_zoom
     properties:
       minzoom: 8
@@ -1128,14 +1148,24 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        (SELECT
-            way,
+        (SELECT way, admin_level FROM (
+          SELECT
+            CASE WHEN ST_XMax(way) > 20037507.84 OR ST_XMin(way) < -20037507.84
+              THEN (SELECT ST_LineMerge(ST_Collect(s.geom))
+                      FROM ST_DumpSegments(way) s
+                     WHERE NOT (abs(abs(ST_X(ST_StartPoint(s.geom))) - 20037508.342789244) < 0.5
+                            AND abs(abs(ST_X(ST_EndPoint(s.geom)))   - 20037508.342789244) < 0.5))
+              ELSE way
+            END AS way,
             admin_level
           FROM planet_osm_roads
           WHERE boundary = 'administrative'
             AND admin_level IN ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10')
             AND osm_id < 0
-          ORDER BY admin_level::integer DESC -- With 10 as a valid value, we need to do a numeric ordering, not a text ordering
+            AND way && !bbox!
+        ) q
+        WHERE way IS NOT NULL AND NOT ST_IsEmpty(way)
+        ORDER BY admin_level::integer DESC -- With 10 as a valid value, we need to do a numeric ordering, not a text ordering
         ) AS admin_high_zoom
     properties:
       minzoom: 13
