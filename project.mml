@@ -1092,8 +1092,7 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        (SELECT way, admin_level FROM (
-          SELECT
+        (SELECT
             carto_filter_antimeridian(way) AS way,
             admin_level
           FROM planet_osm_roads
@@ -1101,9 +1100,7 @@ Layer:
             AND admin_level IN ('0', '1', '2', '3', '4')
             AND osm_id < 0
             AND way && !bbox!
-        ) q
-        WHERE way IS NOT NULL
-        ORDER BY admin_level DESC
+          ORDER BY admin_level DESC
         ) AS admin_low_zoom
     properties:
       minzoom: 4
@@ -1114,8 +1111,7 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        (SELECT way, admin_level FROM (
-          SELECT
+        (SELECT
             carto_filter_antimeridian(way) AS way,
             admin_level
           FROM planet_osm_roads
@@ -1123,9 +1119,7 @@ Layer:
             AND admin_level IN ('0', '1', '2', '3', '4', '5', '6', '7', '8')
             AND osm_id < 0
             AND way && !bbox!
-        ) q
-        WHERE way IS NOT NULL
-        ORDER BY admin_level DESC
+          ORDER BY admin_level DESC
         ) AS admin_mid_zoom
     properties:
       minzoom: 8
@@ -1136,8 +1130,7 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       table: |-
-        (SELECT way, admin_level FROM (
-          SELECT
+        (SELECT
             carto_filter_antimeridian(way) AS way,
             admin_level
           FROM planet_osm_roads
@@ -1145,9 +1138,7 @@ Layer:
             AND admin_level IN ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10')
             AND osm_id < 0
             AND way && !bbox!
-        ) q
-        WHERE way IS NOT NULL
-        ORDER BY admin_level::integer DESC -- With 10 as a valid value, we need to do a numeric ordering, not a text ordering
+          ORDER BY admin_level::integer DESC -- With 10 as a valid value, we need to do a numeric ordering, not a text ordering
         ) AS admin_high_zoom
     properties:
       minzoom: 13
