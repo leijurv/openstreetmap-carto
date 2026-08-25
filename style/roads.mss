@@ -2659,7 +2659,10 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
           [service = 'INT-minor'] { line-color: #999; }
         }
         line-width: 1;
-        [zoom >= 13] { line-width: 2; }
+        [zoom >= 13] {
+          line-width: 2;
+          [service = 'INT-minor'] { line-width: 1; }
+        }
         [preserved = 'yes'][zoom >= 13] {
           #roads-fill, #bridges {
             dark/line-width: 3;
