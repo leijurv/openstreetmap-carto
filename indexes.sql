@@ -10,12 +10,14 @@ CREATE INDEX planet_osm_line_river ON planet_osm_line USING GIST (way) WHERE wat
 CREATE INDEX planet_osm_line_waterway ON planet_osm_line USING GIST (way) WHERE waterway IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass');
 CREATE INDEX planet_osm_point_junction ON planet_osm_point USING GIST (way) WHERE highway IN ('motorway_junction', 'traffic_signals') OR junction = 'yes';
 CREATE INDEX planet_osm_point_lowzoom_poi ON planet_osm_point USING GIST (way) WHERE aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall';
+CREATE INDEX planet_osm_point_midzoom_poi ON planet_osm_point USING GIST (way) WHERE aeroway = 'aerodrome' OR amenity IN ('ferry_terminal', 'hospital') OR historic = 'castle' OR leisure = 'golf_course' OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower') OR "natural" IN ('bay', 'cape', 'cave_entrance', 'peak', 'saddle', 'spring', 'strait', 'volcano') OR power = 'generator' OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway IN ('dam', 'waterfall', 'weir') OR tags->'mountain_pass' = 'yes';
 CREATE INDEX planet_osm_point_place ON planet_osm_point USING GIST (way) WHERE place IS NOT NULL AND name IS NOT NULL;
 CREATE INDEX planet_osm_point_station ON planet_osm_point USING GIST (way) WHERE railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station';
 CREATE INDEX planet_osm_polygon_admin ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL AND boundary = 'administrative' AND admin_level IN ('0', '1', '2', '3', '4');
 CREATE INDEX planet_osm_polygon_junction ON planet_osm_polygon USING GIST (way) WHERE junction = 'yes';
 CREATE INDEX planet_osm_polygon_lowzoom_poi ON planet_osm_polygon USING GIST (way) WHERE aeroway = 'aerodrome' OR tourism IN ('alpine_hut', 'wilderness_hut');
 CREATE INDEX planet_osm_polygon_man_made ON planet_osm_polygon USING GIST (way) WHERE man_made IN ('pier', 'breakwater', 'groyne', 'bridge');
+CREATE INDEX planet_osm_polygon_midzoom_poi ON planet_osm_polygon USING GIST (way) WHERE aeroway = 'aerodrome' OR amenity IN ('ferry_terminal', 'hospital') OR historic = 'castle' OR leisure = 'golf_course' OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower') OR "natural" IN ('bay', 'cape', 'spring', 'strait') OR power = 'generator' OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'dam' OR tags->'mountain_pass' = 'yes';
 CREATE INDEX planet_osm_polygon_military ON planet_osm_polygon USING GIST (way) WHERE (landuse = 'military' OR military = 'danger_area') AND building IS NULL;
 CREATE INDEX planet_osm_polygon_name ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL;
 CREATE INDEX planet_osm_polygon_name_z6 ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL AND way_area > 5980000;

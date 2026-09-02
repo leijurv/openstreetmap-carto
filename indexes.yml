@@ -9,6 +9,9 @@ point:
   lowzoom_poi:
     # the only point features amenity-points / text-point can draw up to z13
     where: aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall'
+  midzoom_poi:
+    # the only point features amenity-points / text-point can draw at z14-z15
+    where: aeroway = 'aerodrome' OR amenity IN ('ferry_terminal', 'hospital') OR historic = 'castle' OR leisure = 'golf_course' OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower') OR "natural" IN ('bay', 'cape', 'cave_entrance', 'peak', 'saddle', 'spring', 'strait', 'volcano') OR power = 'generator' OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway IN ('dam', 'waterfall', 'weir') OR tags->'mountain_pass' = 'yes'
   station:
     where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
   junction:
@@ -46,6 +49,9 @@ polygon:
   lowzoom_poi:
     # polygon POIs drawn at any size up to z13 (the rest need way_area, see way_area_z6/z10)
     where: aeroway = 'aerodrome' OR tourism IN ('alpine_hut', 'wilderness_hut')
+  midzoom_poi:
+    # polygon POIs drawn at any size at z14-z15
+    where: aeroway = 'aerodrome' OR amenity IN ('ferry_terminal', 'hospital') OR historic = 'castle' OR leisure = 'golf_course' OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower') OR "natural" IN ('bay', 'cape', 'spring', 'strait') OR power = 'generator' OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'dam' OR tags->'mountain_pass' = 'yes'
   station:
     where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
   junction:

@@ -1889,6 +1889,19 @@ Layer:
                     OR way_area > 750*POW(!scale_denominator!*0.001*0.28,2)
                     OR aeroway = 'aerodrome'
                     OR tourism IN ('alpine_hut', 'wilderness_hut'))
+                  -- z14-z15: the same, plus the polygon features drawn at any size there
+                  AND (Z(!scale_denominator!) >= 16
+                    OR way_area > 750*POW(!scale_denominator!*0.001*0.28,2)
+                    OR aeroway = 'aerodrome'
+                    OR amenity IN ('ferry_terminal', 'hospital')
+                    OR historic = 'castle'
+                    OR leisure = 'golf_course'
+                    OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower')
+                    OR "natural" IN ('bay', 'cape', 'spring', 'strait')
+                    OR power = 'generator'
+                    OR tourism IN ('alpine_hut', 'wilderness_hut')
+                    OR waterway = 'dam'
+                    OR tags->'mountain_pass' = 'yes')
               UNION ALL
               SELECT
                   NULL::real AS way_area, -- NULL is faster for point tests; sorting uses way_pixels.
@@ -1924,6 +1937,18 @@ Layer:
                     OR "natural" IN ('peak', 'volcano')
                     OR tourism IN ('alpine_hut', 'wilderness_hut')
                     OR waterway = 'waterfall')
+                  -- z14-z15: only these point features have a style rule
+                  AND (Z(!scale_denominator!) >= 16
+                    OR aeroway = 'aerodrome'
+                    OR amenity IN ('ferry_terminal', 'hospital')
+                    OR historic = 'castle'
+                    OR leisure = 'golf_course'
+                    OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower')
+                    OR "natural" IN ('bay', 'cape', 'cave_entrance', 'peak', 'saddle', 'spring', 'strait', 'volcano')
+                    OR power = 'generator'
+                    OR tourism IN ('alpine_hut', 'wilderness_hut')
+                    OR waterway IN ('dam', 'waterfall', 'weir')
+                    OR tags->'mountain_pass' = 'yes')
               ) _
             ) AS features
           WHERE feature IS NOT NULL
