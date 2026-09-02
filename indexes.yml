@@ -6,6 +6,9 @@ point:
   # The point table is small, but so are the partial indexes
   place:
     where: place IS NOT NULL AND name IS NOT NULL
+  lowzoom_poi:
+    # the only point features amenity-points / text-point can draw up to z13
+    where: aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall'
 line:
   label:
     where: name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL)
@@ -30,6 +33,9 @@ polygon:
     where: name IS NOT NULL AND boundary = 'administrative' AND admin_level IN ('0', '1', '2', '3', '4')
   nobuilding:
     where: building IS NULL
+  lowzoom_poi:
+    # polygon POIs drawn at any size up to z13 (the rest need way_area, see way_area_z6/z10)
+    where: aeroway = 'aerodrome' OR tourism IN ('alpine_hut', 'wilderness_hut')
   military:
     where: (landuse = 'military' OR military = 'danger_area') AND building IS NULL
   water:

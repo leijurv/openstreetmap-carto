@@ -1870,6 +1870,13 @@ Layer:
                 FROM planet_osm_polygon
                 WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
                   AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
+                  -- Up to z13 the only features with a style rule are aerodromes, huts and
+                  -- polygon labels of at least 750 pixels (peaks, volcanoes and waterfalls are
+                  -- point-only); skip everything else before the feature CASE is evaluated.
+                  AND (Z(!scale_denominator!) >= 14
+                    OR way_area > 750*POW(!scale_denominator!*0.001*0.28,2)
+                    OR aeroway = 'aerodrome'
+                    OR tourism IN ('alpine_hut', 'wilderness_hut'))
               UNION ALL
               SELECT
                   NULL::real AS way_area, -- NULL is faster for point tests; sorting uses way_pixels.
@@ -1899,6 +1906,12 @@ Layer:
                   way
                 FROM planet_osm_point
                 WHERE way && !bbox!
+                  -- Up to z13 only these point features have a style rule (see above)
+                  AND (Z(!scale_denominator!) >= 14
+                    OR aeroway = 'aerodrome'
+                    OR "natural" IN ('peak', 'volcano')
+                    OR tourism IN ('alpine_hut', 'wilderness_hut')
+                    OR waterway = 'waterfall')
               ) _
             ) AS features
           WHERE feature IS NOT NULL
