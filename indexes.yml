@@ -11,6 +11,8 @@ point:
     where: aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall'
   station:
     where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
+  junction:
+    where: highway IN ('motorway_junction', 'traffic_signals') OR junction = 'yes'
 line:
   label:
     where: name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL)
@@ -22,6 +24,10 @@ line:
     where: waterway = 'river'
   waterway:
     where: waterway IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass')
+  aeroway:
+    where: aeroway IN ('runway', 'taxiway')
+  man_made:
+    where: man_made IN ('pier', 'breakwater', 'groyne')
 polygon:
   # The polygon table is by far the largest, and generally the slowest
   name:
@@ -40,6 +46,12 @@ polygon:
     where: aeroway = 'aerodrome' OR tourism IN ('alpine_hut', 'wilderness_hut')
   station:
     where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
+  junction:
+    where: junction = 'yes'
+  tourism_boundary:
+    where: tourism IN ('theme_park', 'zoo')
+  man_made:
+    where: man_made IN ('pier', 'breakwater', 'groyne', 'bridge')
   military:
     where: (landuse = 'military' OR military = 'danger_area') AND building IS NULL
   water:
