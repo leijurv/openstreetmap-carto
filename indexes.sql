@@ -1,5 +1,6 @@
 -- These are indexes for rendering performance with OpenStreetMap Carto.
 -- This file is generated with scripts/indexes.py
+CREATE INDEX planet_osm_line_aerialway ON planet_osm_line USING GIST (way) WHERE aerialway IS NOT NULL OR man_made IN ('pipeline', 'goods_conveyor');
 CREATE INDEX planet_osm_line_aeroway ON planet_osm_line USING GIST (way) WHERE aeroway IN ('runway', 'taxiway');
 CREATE INDEX planet_osm_line_ferry ON planet_osm_line USING GIST (way) WHERE route = 'ferry' AND osm_id > 0;
 CREATE INDEX planet_osm_line_label ON planet_osm_line USING GIST (way) WHERE name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL);

@@ -26,6 +26,8 @@ line:
     where: waterway IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass')
   aeroway:
     where: aeroway IN ('runway', 'taxiway')
+  aerialway:
+    where: aerialway IS NOT NULL OR man_made IN ('pipeline', 'goods_conveyor')
   man_made:
     where: man_made IN ('pier', 'breakwater', 'groyne')
 polygon:
