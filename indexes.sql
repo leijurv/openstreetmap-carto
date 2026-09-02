@@ -22,6 +22,7 @@ CREATE INDEX planet_osm_polygon_military ON planet_osm_polygon USING GIST (way) 
 CREATE INDEX planet_osm_polygon_name ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL;
 CREATE INDEX planet_osm_polygon_name_z6 ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL AND way_area > 5980000;
 CREATE INDEX planet_osm_polygon_nobuilding ON planet_osm_polygon USING GIST (way) WHERE building IS NULL;
+CREATE INDEX planet_osm_polygon_protected_area ON planet_osm_polygon USING GIST (way) WHERE boundary IN ('aboriginal_lands', 'national_park', 'protected_area') OR leisure = 'nature_reserve';
 CREATE INDEX planet_osm_polygon_station ON planet_osm_polygon USING GIST (way) WHERE railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station';
 CREATE INDEX planet_osm_polygon_tourism_boundary ON planet_osm_polygon USING GIST (way) WHERE tourism IN ('theme_park', 'zoo');
 CREATE INDEX planet_osm_polygon_water ON planet_osm_polygon USING GIST (way) WHERE waterway IN ('dock', 'riverbank') OR landuse IN ('reservoir', 'basin') OR "natural" IN ('water', 'glacier');

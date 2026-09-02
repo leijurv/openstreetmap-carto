@@ -58,6 +58,8 @@ polygon:
     where: junction = 'yes'
   tourism_boundary:
     where: tourism IN ('theme_park', 'zoo')
+  protected_area:
+    where: boundary IN ('aboriginal_lands', 'national_park', 'protected_area') OR leisure = 'nature_reserve'
   man_made:
     where: man_made IN ('pier', 'breakwater', 'groyne', 'bridge')
   military:
