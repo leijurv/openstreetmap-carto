@@ -9,6 +9,8 @@ point:
   lowzoom_poi:
     # the only point features amenity-points / text-point can draw up to z13
     where: aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall'
+  station:
+    where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
 line:
   label:
     where: name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL)
@@ -36,6 +38,8 @@ polygon:
   lowzoom_poi:
     # polygon POIs drawn at any size up to z13 (the rest need way_area, see way_area_z6/z10)
     where: aeroway = 'aerodrome' OR tourism IN ('alpine_hut', 'wilderness_hut')
+  station:
+    where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
   military:
     where: (landuse = 'military' OR military = 'danger_area') AND building IS NULL
   water:
