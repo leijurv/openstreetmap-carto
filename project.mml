@@ -424,17 +424,19 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way,
+            COALESCE(layer,0) AS layernotnull, -- sort keys first, geometry last: see roads_sql
+            way_area,
             building,
             amenity,
             aeroway,
             aerialway,
-            tags->'public_transport' as public_transport
+            tags->'public_transport' as public_transport,
+            way
           FROM planet_osm_polygon
           WHERE building IS NOT NULL
             AND building != 'no'
             AND way_area > 1*!pixel_width!::real*!pixel_height!::real
-          ORDER BY COALESCE(layer,0), way_area DESC
+          ORDER BY layernotnull, way_area DESC
         ) AS buildings
     properties:
       minzoom: 14
@@ -453,7 +455,13 @@ Layer:
       # - Return two linestrings for ways which are both a road and railway
       table: |-
         (SELECT
-            way,
+            COALESCE(layer,0) AS layernotnull,
+            z_order,
+            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END AS sort_rail,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END AS sort_service,
+            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END AS sort_access,
+            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END AS sort_surface,
+            osm_id,
             CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
             tracktype,
             int_surface,
@@ -462,7 +470,7 @@ Layer:
             service,
             link,
             preserved,
-            COALESCE(layer,0) AS layernotnull
+            way
           FROM ( -- subselect that contains both roads and rail
             SELECT
                 way,
@@ -510,14 +518,11 @@ Layer:
               WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
                 AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
             ) AS features
+          -- The sort keys are the first, fixed-width columns and the geometry the last one on
+          -- purpose: comparing rows in the sort otherwise has to step over the geometry to reach
+          -- each key, which made the sort the largest cost of this query.
           ORDER BY
-            layernotnull,
-            z_order,
-            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
-            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END,
-            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
-            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
-            osm_id
+            layernotnull, z_order, sort_rail, sort_service, sort_access, sort_surface, osm_id
         ) AS tunnels
     properties:
       cache-features: true
@@ -695,7 +700,13 @@ Layer:
       # - Return two linestrings for ways which are both a road and railway
       table: &roads_sql |-
         (SELECT
-            way,
+            COALESCE(layer,0) AS layernotnull,
+            z_order,
+            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END AS sort_rail,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END AS sort_service,
+            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END AS sort_access,
+            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END AS sort_surface,
+            osm_id,
             CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
             tracktype,
             int_surface,
@@ -704,7 +715,7 @@ Layer:
             service,
             link,
             preserved,
-            COALESCE(layer,0) AS layernotnull
+            way
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
                 way,
@@ -757,14 +768,11 @@ Layer:
                 AND (railway NOT IN ('platform') OR (tags->'location' NOT IN ('underground')) OR (tags->'location') IS NULL)
                 AND railway IS NOT NULL -- end of rail select
             ) AS features
+          -- The sort keys are the first, fixed-width columns and the geometry the last one on
+          -- purpose: comparing rows in the sort otherwise has to step over the geometry to reach
+          -- each key, which made the sort the largest cost of this query.
           ORDER BY
-            layernotnull,
-            z_order,
-            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
-            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END,
-            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
-            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
-            osm_id
+            layernotnull, z_order, sort_rail, sort_service, sort_access, sort_surface, osm_id
         ) AS roads_sql
     properties:
       cache-features: true
@@ -859,7 +867,13 @@ Layer:
       # - Return two linestrings for ways which are both a road and railway
       table: |-
         (SELECT
-            way,
+            COALESCE(layer,0) AS layernotnull,
+            z_order,
+            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END AS sort_rail,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END AS sort_service,
+            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END AS sort_access,
+            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END AS sort_surface,
+            osm_id,
             CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
             tracktype,
             int_surface,
@@ -870,7 +884,7 @@ Layer:
             preserved,
             int_intermittent,
             'bridge' AS int_bridge_tunnel,
-            COALESCE(layer,0) AS layernotnull
+            way
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
                 way,
@@ -942,14 +956,11 @@ Layer:
                 AND (bridge IN ('yes', 'aqueduct') OR (waterway = 'fish_pass'))
                 AND (tunnel IS NULL OR tunnel NOT IN ('yes', 'culvert', 'flooded'))
             ) AS features
+          -- The sort keys are the first, fixed-width columns and the geometry the last one on
+          -- purpose: comparing rows in the sort otherwise has to step over the geometry to reach
+          -- each key, which made the sort the largest cost of this query.
           ORDER BY
-            layernotnull,
-            z_order,
-            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
-            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END,
-            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
-            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
-            osm_id
+            layernotnull, z_order, sort_rail, sort_service, sort_access, sort_surface, osm_id
         ) AS bridges
     properties:
       cache-features: true
@@ -1965,15 +1976,19 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way,
+            z_order, -- sort keys first, geometry last: see roads_sql
+            COALESCE(layer, 0) AS layernotnull,
+            length(name) AS name_length,
+            name,
+            l.osm_id,
             CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
             CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
             construction,
-            name,
             CASE
               WHEN oneway IN ('yes', '-1') THEN oneway
               WHEN junction IN ('roundabout') AND (oneway IS NULL OR NOT oneway IN ('no', 'reversible')) THEN 'yes'
-            END AS oneway
+            END AS oneway,
+            way
           FROM planet_osm_line l
           WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary',
                             'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway')
@@ -1982,10 +1997,10 @@ Layer:
               OR junction IN ('roundabout'))
           ORDER BY
             z_order DESC, -- put important roads first
-            COALESCE(layer, 0), -- put top layered roads first
-            length(name) DESC, -- Try to fit big labels in first
+            layernotnull, -- put top layered roads first
+            name_length DESC, -- Try to fit big labels in first
             name DESC, -- Force a consistent ordering between differently named streets
-            l.osm_id DESC -- Force an ordering for streets of the same name, e.g. dualized roads
+            osm_id DESC -- Force an ordering for streets of the same name, e.g. dualized roads
         ) AS roads_text_name
     properties:
       cache-features: true
