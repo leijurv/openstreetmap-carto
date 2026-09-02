@@ -31,6 +31,9 @@ line:
     where: aeroway IN ('runway', 'taxiway')
   aerialway:
     where: aerialway IS NOT NULL OR man_made IN ('pipeline', 'goods_conveyor')
+  roads_lowzoom:
+    # the highway classes roads/tunnels/bridges select up to z11
+    where: highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'road', 'bus_guideway')
   man_made:
     where: man_made IN ('pier', 'breakwater', 'groyne')
 polygon:

@@ -7,6 +7,7 @@ CREATE INDEX planet_osm_line_label ON planet_osm_line USING GIST (way) WHERE nam
 CREATE INDEX planet_osm_line_man_made ON planet_osm_line USING GIST (way) WHERE man_made IN ('pier', 'breakwater', 'groyne');
 CREATE INDEX planet_osm_line_railway ON planet_osm_line USING GIST (way) WHERE railway IS NOT NULL;
 CREATE INDEX planet_osm_line_river ON planet_osm_line USING GIST (way) WHERE waterway = 'river';
+CREATE INDEX planet_osm_line_roads_lowzoom ON planet_osm_line USING GIST (way) WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'road', 'bus_guideway');
 CREATE INDEX planet_osm_line_waterway ON planet_osm_line USING GIST (way) WHERE waterway IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass');
 CREATE INDEX planet_osm_point_junction ON planet_osm_point USING GIST (way) WHERE highway IN ('motorway_junction', 'traffic_signals') OR junction = 'yes';
 CREATE INDEX planet_osm_point_lowzoom_poi ON planet_osm_point USING GIST (way) WHERE aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall';
