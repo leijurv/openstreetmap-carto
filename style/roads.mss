@@ -2726,16 +2726,10 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     between the classes is drawn on the main tracks only. */
     [feature = 'railway_INT-minor-railway'] {
       [zoom >= 12] {
-        line-color: #aaa;
+        line-color: #6E6E6E;
         line-width: 0.5;
-        [zoom >= 14] {
-          line-width: 0.75;
-        }
-        [zoom >= 15] {
-          line-width: 1;
-        }
         [zoom >= 17] {
-          line-width: 1.25;
+          line-width: 1;
         }
         [zoom >= 18] {
           line-width: 1.5;
