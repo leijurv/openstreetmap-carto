@@ -811,8 +811,20 @@
       }
     }
 
-    [feature = 'railway_tram'],
-    [feature = 'railway_tram-service'][zoom >= 15] {
+    [feature = 'railway_tram'] {
+      #bridges {
+        [zoom >= 13] {
+          line-width: 4;
+          [zoom >= 15] {
+            line-width: 5;
+          }
+          line-color: @bridge-casing;
+          line-join: round;
+        }
+      }
+    }
+
+    [feature = 'railway_INT-minor-railway'] {
       #bridges {
         [zoom >= 13] {
           line-width: 4;
@@ -827,6 +839,18 @@
 
     [feature = 'railway_subway'],
     [feature = 'railway_construction'][construction = 'subway'] {
+      #bridges {
+        [zoom >= 14] {
+          line-width: 5.5;
+          line-color: @bridge-casing;
+          line-join: round;
+        }
+      }
+    }
+
+    [feature = 'railway_light_rail'],
+    [feature = 'railway_funicular'],
+    [feature = 'railway_narrow_gauge'] {
       #bridges {
         [zoom >= 14] {
           line-width: 5.5;
@@ -1066,8 +1090,19 @@
       }
     }
 
-    [feature = 'railway_tram'],
-    [feature = 'railway_tram-service'][zoom >= 15] {
+    [feature = 'railway_tram'] {
+      #bridges {
+        [zoom >= 13] {
+          line-width: 3;
+          [zoom >= 15] {
+            line-width: 4;
+          }
+          line-color: white;
+        }
+      }
+    }
+
+    [feature = 'railway_INT-minor-railway'] {
       #bridges {
         [zoom >= 13] {
           line-width: 3;
@@ -1081,6 +1116,18 @@
 
     [feature = 'railway_subway'],
     [feature = 'railway_construction'][construction = 'subway'] {
+      #bridges {
+        [zoom >= 14] {
+          line-width: 4;
+          line-color: white;
+          line-join: round;
+        }
+      }
+    }
+
+    [feature = 'railway_light_rail'],
+    [feature = 'railway_funicular'],
+    [feature = 'railway_narrow_gauge'] {
       #bridges {
         [zoom >= 14] {
           line-width: 4;
@@ -2628,6 +2675,33 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
       }
     }
 
+    [feature = 'railway_light_rail'],
+    [feature = 'railway_funicular'],
+    [feature = 'railway_narrow_gauge'] {
+      [zoom >= 8][zoom < 10],
+      [preserved != 'yes'][zoom >= 10][zoom < 12],
+      [zoom >= 12] {
+        line-color: #ccc;
+        [zoom >= 10] { line-color: #aaa; }
+        [zoom >= 13] { line-color: #666; }
+        line-width: 1;
+        [zoom >= 13] { line-width: 2; }
+        [preserved = 'yes'][zoom >= 13] {
+          #roads-fill, #bridges {
+            dark/line-width: 3;
+            dark/line-color: #999;
+            light/line-width: 1;
+            light/line-color: white;
+            light/line-dasharray: 0,1,8,1;
+            light/line-join: round;
+          }
+        }
+        #tunnels {
+          line-dasharray: 5,3;
+        }
+      }
+    }
+
     [feature = 'railway_miniature'] {
       [zoom >= 15] {
         line/line-width: 1.2;
@@ -2647,8 +2721,35 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
       }
     }
 
-    [feature = 'railway_tram'],
-    [feature = 'railway_tram-service'][zoom >= 15] {
+    /* Minor trackage (service=spur/siding/yard) of every railway class except
+    railway=rail shares a single thin, light signature, so that the distinction
+    between the classes is drawn on the main tracks only. */
+    [feature = 'railway_INT-minor-railway'] {
+      [zoom >= 12] {
+        line-color: #aaa;
+        line-width: 0.5;
+        [zoom >= 14] {
+          line-width: 0.75;
+        }
+        [zoom >= 15] {
+          line-width: 1;
+        }
+        [zoom >= 17] {
+          line-width: 1.25;
+        }
+        [zoom >= 18] {
+          line-width: 1.5;
+        }
+        [zoom >= 19] {
+          line-width: 2;
+        }
+        #tunnels {
+          line-dasharray: 5,3;
+        }
+      }
+    }
+
+    [feature = 'railway_tram'] {
       [zoom >= 12] {
         line-color: #6E6E6E;
         line-width: 0.75;
@@ -2657,25 +2758,9 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
         }
         [zoom >= 15] {
           line-width: 1.5;
-          [feature = 'railway_tram-service'] {
-            line-width: 0.5;
-          }
         }
         [zoom >= 17] {
           line-width: 2;
-          [feature = 'railway_tram-service'] {
-            line-width: 1;
-          }
-        }
-        [zoom >= 18] {
-          [feature = 'railway_tram-service'] {
-            line-width: 1.5;
-          }
-        }
-        [zoom >= 19] {
-          [feature = 'railway_tram-service'] {
-            line-width: 2;
-          }
         }
         [preserved = 'yes'][zoom >= 15] {
           #roads-fill, #bridges {
