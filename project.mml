@@ -830,7 +830,8 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way,
+            z_order,
+            osm_id,
             COALESCE(
               ('highway_' || (CASE WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link')
                                      THEN substr(highway, 0, length(highway)-4) ELSE highway end)),
@@ -838,7 +839,8 @@ Layer:
             ) AS feature,
             CASE WHEN tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes' THEN 'yes' ELSE 'no' END AS int_tunnel,
             CASE WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link') THEN 'yes' ELSE 'no' END AS link,
-            carto_highway_int_surface(surface) AS int_surface
+            carto_highway_int_surface(surface) AS int_surface,
+            way
           FROM planet_osm_roads
           WHERE highway IS NOT NULL
             OR (railway IN ('rail', 'light_rail', 'funicular', 'narrow_gauge')
