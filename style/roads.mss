@@ -336,6 +336,13 @@
 
 @railway-text-repeat-distance: 200;
 
+// Ensures that the 4 attachments in the tunnels layer are always correctly ordered 
+// (Equivalent for bridges layer is in water.mss)
+#tunnels[feature = null]::halo { line: none; }
+#tunnels[feature = null]::casing { line: none; }
+#tunnels[feature = null]::bridges_and_tunnels_background { line: none; }
+#tunnels[feature = null]::fill { line: none; }
+
 #roads-casing, #bridges, #tunnels {
   ::casing {
     [zoom >= 12] {
@@ -829,18 +836,6 @@
       }
     }
 
-    [feature = 'railway_light_rail'],
-    [feature = 'railway_funicular'],
-    [feature = 'railway_narrow_gauge'] {
-      #bridges {
-        [zoom >= 14] {
-          line-width: 5.5;
-          line-color: @bridge-casing;
-          line-join: round;
-        }
-      }
-    }
-
     [feature = 'railway_rail'],
     [feature = 'railway_monorail'][zoom >= 14] {
       #bridges {
@@ -1094,18 +1089,6 @@
         }
       }
     }
-
-    [feature = 'railway_light_rail'],
-    [feature = 'railway_funicular'],
-    [feature = 'railway_narrow_gauge'] {
-      #bridges {
-        [zoom >= 14] {
-          line-width: 4;
-          line-color: white;
-          line-join: round;
-        }
-      }
-    }
   }
 }
 
@@ -1185,7 +1168,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     /*
      * The highway_construction rules below are quite sensitive to re-ordering, since the instances end up swapping round
      * (and then the dashes appear below the fills). See:
-     * https://github.com/gravitystorm/openstreetmap-carto/issues/23
+     * https://github.com/openstreetmap-carto/openstreetmap-carto/issues/23
      * https://github.com/mapbox/carto/issues/235
      * https://github.com/mapbox/carto/issues/237
      */
@@ -2641,40 +2624,6 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
             line-dasharray: 8,6;
             line-width: 3.8;
           }
-        }
-      }
-    }
-
-    [feature = 'railway_light_rail'],
-    [feature = 'railway_funicular'],
-    [feature = 'railway_narrow_gauge'] {
-      [zoom >= 8][zoom < 10],
-      [preserved != 'yes'][zoom >= 10][zoom < 12],
-      [zoom >= 12] {
-        line-color: #ccc;
-        [zoom >= 10] { line-color: #aaa; }
-        [zoom >= 13] {
-          line-color: #666;
-          /* Spur, siding and yard trackage is de-emphasised relative to running lines */
-          [service = 'INT-minor'] { line-color: #999; }
-        }
-        line-width: 1;
-        [zoom >= 13] {
-          line-width: 2;
-          [service = 'INT-minor'] { line-width: 1; }
-        }
-        [preserved = 'yes'][zoom >= 13] {
-          #roads-fill, #bridges {
-            dark/line-width: 3;
-            dark/line-color: #999;
-            light/line-width: 1;
-            light/line-color: white;
-            light/line-dasharray: 0,1,8,1;
-            light/line-join: round;
-          }
-        }
-        #tunnels {
-          line-dasharray: 5,3;
         }
       }
     }
@@ -4363,7 +4312,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
 
   /*
   Other minor railway styles. For service rails, see:
-  https://github.com/gravitystorm/openstreetmap-carto/pull/2687
+  https://github.com/openstreetmap-carto/openstreetmap-carto/pull/2687
   */
   [railway = 'miniature'],
   [railway = 'disused'],

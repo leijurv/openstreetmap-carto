@@ -214,6 +214,7 @@ Layer:
             CASE WHEN int_bridge_tunnel = 'tunnel' THEN 1 ELSE 0 END  -- render tunnels after normal waterways (bridges are in later layer)
         ) AS water_lines
     properties:
+      cache-features: true
       minzoom: 12
   - id: water-areas
     geometry: polygon
@@ -490,13 +491,15 @@ Layer:
                 way,
                 'railway_' || (CASE
                                  WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 -- light_rail, funicular and narrow_gauge use the tram rendering
+                                 WHEN (railway IN ('tram', 'light_rail', 'funicular', 'narrow_gauge') AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 WHEN (railway IN ('light_rail', 'funicular', 'narrow_gauge')) THEN 'tram'
                                  ELSE railway END) AS feature,
                 NULL AS tracktype,
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
-                CASE WHEN service IN ('spur', 'siding', 'yard') THEN 'INT-minor' END AS service,
+                NULL AS service,
                 NULL AS link,
                 CASE
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
@@ -734,13 +737,15 @@ Layer:
                 way,
                 'railway_' || (CASE
                                  WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 -- light_rail, funicular and narrow_gauge use the tram rendering
+                                 WHEN (railway IN ('tram', 'light_rail', 'funicular', 'narrow_gauge') AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 WHEN (railway IN ('light_rail', 'funicular', 'narrow_gauge')) THEN 'tram'
                                  ELSE railway END) AS feature,
                 NULL AS tracktype,
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
-                CASE WHEN service IN ('spur', 'siding', 'yard') THEN 'INT-minor' END AS service,
+                NULL AS service,
                 NULL AS link,
                 CASE
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
@@ -832,7 +837,7 @@ Layer:
             carto_highway_int_surface(surface) AS int_surface
           FROM planet_osm_roads
           WHERE highway IS NOT NULL
-            OR (railway IN ('rail', 'light_rail', 'funicular', 'narrow_gauge')
+            OR (railway = 'rail'
               AND (tags->'railway:preserved' IS NULL OR tags->'railway:preserved' != 'yes')
               AND (service IS NULL OR service NOT IN ('spur', 'siding', 'yard')))
           ORDER BY
@@ -899,13 +904,15 @@ Layer:
                 way,
                 'railway_' || (CASE
                                  WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 -- light_rail, funicular and narrow_gauge use the tram rendering
+                                 WHEN (railway IN ('tram', 'light_rail', 'funicular', 'narrow_gauge') AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 WHEN (railway IN ('light_rail', 'funicular', 'narrow_gauge')) THEN 'tram'
                                  ELSE railway END) AS feature,
                 NULL AS tracktype,
                 NULL AS int_surface,
                 NULL AS int_access,
                 construction,
-                CASE WHEN service IN ('spur', 'siding', 'yard') THEN 'INT-minor' END AS service,
+                NULL AS service,
                 NULL AS link,
                 CASE
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
@@ -2164,7 +2171,7 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       # Include values that are rendered as icon without label to prevent mismatch between icons and labels,
-      # see https://github.com/gravitystorm/openstreetmap-carto/pull/1349#issuecomment-77805678
+      # see https://github.com/openstreetmap-carto/openstreetmap-carto/pull/1349#issuecomment-77805678
       table: *amenity_points_sql
     properties:
       minzoom: 10
@@ -2393,7 +2400,7 @@ Layer:
     Datasource:
       <<: *osm2pgsql
       # Include values that are rendered as icon without label to prevent mismatch between icons and labels,
-      # see https://github.com/gravitystorm/openstreetmap-carto/pull/1349#issuecomment-77805678
+      # see https://github.com/openstreetmap-carto/openstreetmap-carto/pull/1349#issuecomment-77805678
       table: *amenity_low_priority_sql
     properties:
       minzoom: 17
