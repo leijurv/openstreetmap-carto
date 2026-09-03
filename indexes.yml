@@ -16,6 +16,8 @@ point:
     where: railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station'
   junction:
     where: highway IN ('motorway_junction', 'traffic_signals') OR junction = 'yes'
+  water_barrier:
+    where: waterway IN ('dam', 'weir', 'lock_gate', 'waterfall')
 line:
   label:
     where: name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL)
@@ -36,6 +38,16 @@ line:
     where: highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'road', 'bus_guideway')
   man_made:
     where: man_made IN ('pier', 'breakwater', 'groyne')
+  tunnel:
+    where: tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes'
+  bridge:
+    where: bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct')
+  roller_coaster:
+    where: tags @> 'roller_coaster=>track'
+  cliff:
+    where: man_made = 'embankment' OR "natural" IN ('arete', 'cliff', 'ridge')
+  water_barrier:
+    where: waterway IN ('dam', 'weir', 'lock_gate')
 polygon:
   # The polygon table is by far the largest, and generally the slowest
   name:
@@ -65,6 +77,12 @@ polygon:
     where: boundary IN ('aboriginal_lands', 'national_park', 'protected_area') OR leisure = 'nature_reserve'
   man_made:
     where: man_made IN ('pier', 'breakwater', 'groyne', 'bridge')
+  highway_area:
+    where: highway IN ('pedestrian', 'footway', 'service', 'living_street', 'platform', 'services') OR railway = 'platform' OR aeroway IN ('runway', 'taxiway', 'helipad')
+  marina:
+    where: leisure = 'marina'
+  water_barrier:
+    where: waterway IN ('dam', 'weir', 'lock_gate')
   military:
     where: (landuse = 'military' OR military = 'danger_area') AND building IS NULL
   water:

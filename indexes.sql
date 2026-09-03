@@ -2,22 +2,30 @@
 -- This file is generated with scripts/indexes.py
 CREATE INDEX planet_osm_line_aerialway ON planet_osm_line USING GIST (way) WHERE aerialway IS NOT NULL OR man_made IN ('pipeline', 'goods_conveyor');
 CREATE INDEX planet_osm_line_aeroway ON planet_osm_line USING GIST (way) WHERE aeroway IN ('runway', 'taxiway');
+CREATE INDEX planet_osm_line_bridge ON planet_osm_line USING GIST (way) WHERE bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct');
+CREATE INDEX planet_osm_line_cliff ON planet_osm_line USING GIST (way) WHERE man_made = 'embankment' OR "natural" IN ('arete', 'cliff', 'ridge');
 CREATE INDEX planet_osm_line_ferry ON planet_osm_line USING GIST (way) WHERE route = 'ferry' AND osm_id > 0;
 CREATE INDEX planet_osm_line_label ON planet_osm_line USING GIST (way) WHERE name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL);
 CREATE INDEX planet_osm_line_man_made ON planet_osm_line USING GIST (way) WHERE man_made IN ('pier', 'breakwater', 'groyne');
 CREATE INDEX planet_osm_line_railway ON planet_osm_line USING GIST (way) WHERE railway IS NOT NULL;
 CREATE INDEX planet_osm_line_river ON planet_osm_line USING GIST (way) WHERE waterway = 'river';
 CREATE INDEX planet_osm_line_roads_lowzoom ON planet_osm_line USING GIST (way) WHERE highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'road', 'bus_guideway');
+CREATE INDEX planet_osm_line_roller_coaster ON planet_osm_line USING GIST (way) WHERE tags @> 'roller_coaster=>track';
+CREATE INDEX planet_osm_line_tunnel ON planet_osm_line USING GIST (way) WHERE tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes';
+CREATE INDEX planet_osm_line_water_barrier ON planet_osm_line USING GIST (way) WHERE waterway IN ('dam', 'weir', 'lock_gate');
 CREATE INDEX planet_osm_line_waterway ON planet_osm_line USING GIST (way) WHERE waterway IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass');
 CREATE INDEX planet_osm_point_junction ON planet_osm_point USING GIST (way) WHERE highway IN ('motorway_junction', 'traffic_signals') OR junction = 'yes';
 CREATE INDEX planet_osm_point_lowzoom_poi ON planet_osm_point USING GIST (way) WHERE aeroway = 'aerodrome' OR "natural" IN ('peak', 'volcano') OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'waterfall';
 CREATE INDEX planet_osm_point_midzoom_poi ON planet_osm_point USING GIST (way) WHERE aeroway = 'aerodrome' OR amenity IN ('ferry_terminal', 'hospital') OR historic = 'castle' OR leisure = 'golf_course' OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower') OR "natural" IN ('bay', 'cape', 'cave_entrance', 'peak', 'saddle', 'spring', 'strait', 'volcano') OR power = 'generator' OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway IN ('dam', 'waterfall', 'weir') OR tags->'mountain_pass' = 'yes';
 CREATE INDEX planet_osm_point_place ON planet_osm_point USING GIST (way) WHERE place IS NOT NULL AND name IS NOT NULL;
 CREATE INDEX planet_osm_point_station ON planet_osm_point USING GIST (way) WHERE railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station';
+CREATE INDEX planet_osm_point_water_barrier ON planet_osm_point USING GIST (way) WHERE waterway IN ('dam', 'weir', 'lock_gate', 'waterfall');
 CREATE INDEX planet_osm_polygon_admin ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL AND boundary = 'administrative' AND admin_level IN ('0', '1', '2', '3', '4');
+CREATE INDEX planet_osm_polygon_highway_area ON planet_osm_polygon USING GIST (way) WHERE highway IN ('pedestrian', 'footway', 'service', 'living_street', 'platform', 'services') OR railway = 'platform' OR aeroway IN ('runway', 'taxiway', 'helipad');
 CREATE INDEX planet_osm_polygon_junction ON planet_osm_polygon USING GIST (way) WHERE junction = 'yes';
 CREATE INDEX planet_osm_polygon_lowzoom_poi ON planet_osm_polygon USING GIST (way) WHERE aeroway = 'aerodrome' OR tourism IN ('alpine_hut', 'wilderness_hut');
 CREATE INDEX planet_osm_polygon_man_made ON planet_osm_polygon USING GIST (way) WHERE man_made IN ('pier', 'breakwater', 'groyne', 'bridge');
+CREATE INDEX planet_osm_polygon_marina ON planet_osm_polygon USING GIST (way) WHERE leisure = 'marina';
 CREATE INDEX planet_osm_polygon_midzoom_poi ON planet_osm_polygon USING GIST (way) WHERE aeroway = 'aerodrome' OR amenity IN ('ferry_terminal', 'hospital') OR historic = 'castle' OR leisure = 'golf_course' OR man_made IN ('communications_tower', 'lighthouse', 'mast', 'telescope', 'tower') OR "natural" IN ('bay', 'cape', 'spring', 'strait') OR power = 'generator' OR tourism IN ('alpine_hut', 'wilderness_hut') OR waterway = 'dam' OR tags->'mountain_pass' = 'yes';
 CREATE INDEX planet_osm_polygon_military ON planet_osm_polygon USING GIST (way) WHERE (landuse = 'military' OR military = 'danger_area') AND building IS NULL;
 CREATE INDEX planet_osm_polygon_name ON planet_osm_polygon USING GIST (ST_PointOnSurface(way)) WHERE name IS NOT NULL;
@@ -27,6 +35,7 @@ CREATE INDEX planet_osm_polygon_protected_area ON planet_osm_polygon USING GIST 
 CREATE INDEX planet_osm_polygon_station ON planet_osm_polygon USING GIST (way) WHERE railway IN ('station', 'halt', 'tram_stop', 'subway_entrance') OR aerialway = 'station';
 CREATE INDEX planet_osm_polygon_tourism_boundary ON planet_osm_polygon USING GIST (way) WHERE tourism IN ('theme_park', 'zoo');
 CREATE INDEX planet_osm_polygon_water ON planet_osm_polygon USING GIST (way) WHERE waterway IN ('dock', 'riverbank') OR landuse IN ('reservoir', 'basin') OR "natural" IN ('water', 'glacier');
+CREATE INDEX planet_osm_polygon_water_barrier ON planet_osm_polygon USING GIST (way) WHERE waterway IN ('dam', 'weir', 'lock_gate');
 CREATE INDEX planet_osm_polygon_way_area_z10 ON planet_osm_polygon USING GIST (way) WHERE way_area > 23300;
 CREATE INDEX planet_osm_polygon_way_area_z6 ON planet_osm_polygon USING GIST (way) WHERE way_area > 5980000;
 CREATE INDEX planet_osm_roads_admin ON planet_osm_roads USING GIST (way) WHERE boundary = 'administrative' AND osm_id < 0;
