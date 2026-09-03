@@ -1979,8 +1979,8 @@ Layer:
             z_order, -- sort keys first, geometry last: see roads_sql
             COALESCE(layer, 0) AS layernotnull,
             length(name) AS name_length,
-            name,
             l.osm_id,
+            name,
             CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
             CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
             construction,
