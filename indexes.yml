@@ -18,6 +18,20 @@ point:
     where: highway IN ('motorway_junction', 'traffic_signals') OR junction = 'yes'
   water_barrier:
     where: waterway IN ('dam', 'weir', 'lock_gate', 'waterfall')
+  railway_crossing:
+    where: railway IN ('crossing', 'level_crossing')
+  turning_circle:
+    where: highway IN ('turning_circle', 'turning_loop', 'mini_roundabout')
+  power_tower:
+    where: power IN ('tower', 'pole')
+  amenity_low_priority:
+    where: amenity IN ('bench', 'waste_basket', 'waste_disposal') OR historic IN ('wayside_cross', 'wayside_shrine') OR man_made = 'cross' OR barrier IN ('bollard', 'gate', 'lift_gate', 'swing_gate', 'block', 'log', 'cattle_grid', 'stile', 'motorcycle_barrier', 'cycle_barrier', 'full-height_turnstile', 'turnstile', 'kissing_gate')
+  tree:
+    where: ("natural" = 'tree')
+  capital:
+    where: place IN ('city', 'town', 'village', 'hamlet') AND name IS NOT NULL AND tags @> 'capital=>yes'
+  placename_medium:
+    where: place IN ('city', 'town') AND name IS NOT NULL AND NOT tags @> 'capital=>yes'
 line:
   label:
     where: name IS NOT NULL OR (tags @> 'golf=>hole'::hstore AND ref IS NOT NULL)
@@ -48,6 +62,40 @@ line:
     where: man_made = 'embankment' OR "natural" IN ('arete', 'cliff', 'ridge')
   water_barrier:
     where: waterway IN ('dam', 'weir', 'lock_gate')
+  cutline:
+    where: man_made = 'cutline'
+  roads_z13:
+    where: highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'road', 'bus_guideway', 'residential', 'unclassified', 'construction', 'raceway', 'living_street', 'track', 'cycleway', 'bridleway', 'path')
+  roads_name:
+    where: highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'residential', 'unclassified', 'road', 'service', 'pedestrian', 'raceway', 'living_street', 'construction', 'bus_guideway') AND (name IS NOT NULL OR oneway IN ('yes', '-1') OR junction = 'roundabout')
+  power:
+    where: power IN ('line', 'minor_line')
+  waterway_text:
+    where: (waterway IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass') OR "natural" IN ('bay', 'strait')) AND (tunnel IS NULL OR tunnel != 'culvert') AND name IS NOT NULL
+  barrier:
+    where: barrier IN ('chain', 'city_wall', 'ditch', 'fence', 'guard_rail', 'handrail', 'hedge', 'retaining_wall', 'wall', 'jersey_barrier') OR (historic = 'citywalls' AND (waterway IS NULL OR waterway NOT IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass')))
+  amenity:
+    where: tags->'ford' IN ('yes', 'stepping_stones') OR leisure = 'slipway' OR man_made = 'ceremonial_gate'
+  leisure_track:
+    where: leisure = 'track'
+  waterslide:
+    where: tags @> 'attraction=>water_slide'
+  golf:
+    where: tags @> 'golf=>hole'
+  interpolation:
+    where: ("addr:interpolation" IS NOT NULL)
+  paths_text:
+    where: highway IN ('bridleway', 'footway', 'cycleway', 'path', 'track', 'steps', 'construction') AND (name IS NOT NULL OR oneway IN ('yes', '-1') OR junction = 'roundabout')
+  roads_ref:
+    where: (highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary') OR aeroway IN ('runway', 'taxiway')) AND ref IS NOT NULL
+  roads_ref_minor:
+    where: highway IN ('unclassified', 'residential', 'track') AND ref IS NOT NULL
+  text:
+    where: (((man_made IN ('pier', 'breakwater', 'groyne', 'embankment') OR (man_made = 'pipeline' AND (tags->'location' IN ('overground', 'overhead', 'surface', 'outdoor') OR bridge IN ('yes', 'aqueduct', 'cantilever', 'covered', 'trestle', 'viaduct'))) OR tags @> 'attraction=>water_slide' OR aerialway IN ('cable_car', 'gondola', 'mixed_lift', 'goods', 'chair_lift', 'drag_lift', 't-bar', 'j-bar', 'platter', 'rope_tow', 'zip_line') OR leisure IN ('slipway', 'track') OR waterway IN ('dam', 'weir') OR "natural" IN ('arete', 'cliff', 'ridge') OR man_made = 'ceremonial_gate') AND name IS NOT NULL) OR (tags @> 'golf=>hole' AND ref IS NOT NULL))
+  tree_row:
+    where: ("natural" = 'tree_row')
+  railway_text:
+    where: railway IN ('rail', 'subway', 'narrow_gauge', 'light_rail', 'funicular', 'monorail', 'miniature', 'tram', 'disused', 'construction') AND (tunnel IS NULL OR tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector')) AND highway IS NULL AND name IS NOT NULL
 polygon:
   # The polygon table is by far the largest, and generally the slowest
   name:
@@ -87,6 +135,30 @@ polygon:
     where: (landuse = 'military' OR military = 'danger_area') AND building IS NULL
   water:
     where: waterway IN ('dock', 'riverbank') OR landuse IN ('reservoir', 'basin') OR "natural" IN ('water', 'glacier')
+  landcover:
+    where: landuse IS NOT NULL OR leisure IS NOT NULL OR aeroway IN ('apron', 'aerodrome') OR tags->'golf' IS NOT NULL OR amenity IN ('parking', 'bicycle_parking', 'motorcycle_parking', 'taxi', 'university', 'college', 'school', 'hospital', 'kindergarten', 'grave_yard', 'place_of_worship', 'prison', 'clinic', 'ferry_terminal', 'marketplace', 'community_centre', 'social_facility', 'arts_centre', 'parking_space', 'bus_station', 'fire_station', 'police') OR man_made IN ('works', 'wastewater_plant', 'water_works') OR "natural" IN ('beach', 'shoal', 'heath', 'mud', 'wetland', 'grassland', 'wood', 'sand', 'scree', 'shingle', 'bare_rock', 'scrub') OR power IN ('plant', 'substation', 'generator') OR shop = 'mall' OR tourism IN ('camp_site', 'caravan_site', 'picnic_site') OR highway IN ('services', 'rest_area') OR railway = 'station'
+  landcover_symbols:
+    where: ("natural" IN ('mud', 'wetland', 'wood', 'beach', 'shoal', 'reef', 'scrub') OR landuse IN ('forest', 'salt_pond')) AND building IS NULL
+  barrier:
+    where: barrier IN ('chain', 'city_wall', 'ditch', 'fence', 'guard_rail', 'handrail', 'hedge', 'retaining_wall', 'wall', 'jersey_barrier') OR (historic = 'citywalls' AND (waterway IS NULL OR waterway NOT IN ('river', 'canal', 'stream', 'drain', 'ditch', 'fish_pass')))
+  bridge_text:
+    function: ST_PointOnSurface(way)
+    where: name IS NOT NULL AND man_made = 'bridge'
+  roads_area_text:
+    function: ST_PointOnSurface(way)
+    where: name IS NOT NULL AND (highway IN ('pedestrian', 'footway', 'service', 'living_street', 'platform') OR (railway = 'platform' AND (tags->'location' NOT IN ('underground') OR tags->'location' IS NULL) AND (tunnel NOT IN ('yes', 'building_passage', 'avalanche_protector') OR tunnel IS NULL) AND (covered != 'yes' OR covered IS NULL)))
+  county_name:
+    function: ST_PointOnSurface(way)
+    where: name IS NOT NULL AND boundary = 'administrative' AND admin_level IN ('5', '6') AND osm_id < 0
+  amenity_low_priority:
+    where: amenity IN ('bench', 'waste_basket', 'waste_disposal') OR historic IN ('wayside_cross', 'wayside_shrine') OR man_made = 'cross' OR barrier IN ('bollard', 'gate', 'lift_gate', 'swing_gate', 'block', 'log', 'cattle_grid', 'stile', 'motorcycle_barrier', 'cycle_barrier', 'full-height_turnstile', 'turnstile', 'kissing_gate')
+  admin_text:
+    where: boundary = 'administrative' AND admin_level IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10') AND name IS NOT NULL AND osm_id < 0
+  country_name:
+    where: name IS NOT NULL AND boundary = 'administrative' AND admin_level = '2' AND osm_id < 0
+  building_text:
+    function: ST_PointOnSurface(way)
+    where: name IS NOT NULL AND building IS NOT NULL AND building != 'no'
   way_area_z6:
     where: way_area > 5980000
   way_area_z10:

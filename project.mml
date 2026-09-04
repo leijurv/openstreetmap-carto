@@ -881,6 +881,7 @@ Layer:
       <<: *osm2pgsql
       table: *turning-circle_sql
     properties:
+      cache-features: true
       minzoom: 15
   - id: roads-low-zoom
     geometry: linestring
@@ -1101,6 +1102,7 @@ Layer:
           WHERE tags @> 'roller_coaster=>track' AND railway IS NULL
         ) AS roller_coaster
     properties:
+      cache-features: true
       minzoom: 15
   - id: roller-coaster
     geometry: linestring
@@ -1235,6 +1237,7 @@ Layer:
           ORDER BY admin_level DESC
         ) AS admin_mid_zoom
     properties:
+      cache-features: true
       minzoom: 8
       maxzoom: 12
   - id: admin-high-zoom
@@ -1255,6 +1258,7 @@ Layer:
           ORDER BY admin_level_numeric DESC -- With 10 as a valid value, we need to do a numeric ordering, not a text ordering
         ) AS admin_high_zoom
     properties:
+      cache-features: true
       minzoom: 13
   - id: power-minorline
     geometry: linestring
@@ -1906,16 +1910,19 @@ Layer:
                 FROM planet_osm_polygon
                 WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
                   AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
-                  -- Up to z13 the only features with a style rule are aerodromes, huts and
-                  -- polygon labels of at least 750 pixels (peaks, volcanoes and waterfalls are
-                  -- point-only); skip everything else before the feature CASE is evaluated.
+                  -- Up to z13 polygon labels start at 3000 pixels, except glaciers at 750 pixels.
                   AND (Z(!scale_denominator!) >= 14
-                    OR way_area > 750*POW(!scale_denominator!*0.001*0.28,2)
+                    OR way_area > 3000*POW(!scale_denominator!*0.001*0.28,2)
+                    OR ("natural" = 'glacier'
+                        AND way_area > 750*POW(!scale_denominator!*0.001*0.28,2))
                     OR aeroway = 'aerodrome'
                     OR tourism IN ('alpine_hut', 'wilderness_hut'))
-                  -- z14-z15: the same, plus the polygon features drawn at any size there
+                  -- At z14-z15 parking and glaciers start at 750 pixels; other area labels at 3000.
                   AND (Z(!scale_denominator!) >= 16
-                    OR way_area > 750*POW(!scale_denominator!*0.001*0.28,2)
+                    OR way_area > 3000*POW(!scale_denominator!*0.001*0.28,2)
+                    OR (("natural" = 'glacier'
+                         OR amenity IN ('bicycle_parking', 'motorcycle_parking', 'parking'))
+                        AND way_area > 750*POW(!scale_denominator!*0.001*0.28,2))
                     OR aeroway = 'aerodrome'
                     OR amenity IN ('ferry_terminal', 'hospital')
                     OR historic = 'castle'
@@ -1976,6 +1983,8 @@ Layer:
               ) _
             ) AS features
           WHERE feature IS NOT NULL
+            -- Trees use their own layer at z16 and enter these layers at z17.
+            AND (Z(!scale_denominator!) != 16 OR feature != 'natural_tree')
           ORDER BY score DESC NULLS LAST,
             way_pixels DESC,
             osm_id
