@@ -449,8 +449,7 @@ Layer:
 
       # This is one of the most complex layers, so it bears explaining in some detail
       # It is necessary to
-      # - Have roads and railways in the same layer to get ordering right
-      # - Return two linestrings for ways which are both a road and railway
+      # - Railway tunnels are drawn in the separate railway-tunnels layer (above roads-fill)
       table: |-
         (SELECT
             way,
@@ -463,7 +462,7 @@ Layer:
             link,
             preserved,
             COALESCE(layer,0) AS layernotnull
-          FROM ( -- subselect that contains both roads and rail
+          FROM ( -- subselect (roads only; railways are in railway-tunnels)
             SELECT
                 way,
                 'highway_' || (CASE WHEN highway = 'path' THEN carto_path_type(bicycle, horse) ELSE highway END) AS feature,
@@ -486,29 +485,6 @@ Layer:
               FROM planet_osm_line
               WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
                 AND highway IS NOT NULL -- end of road select
-            UNION ALL
-            SELECT
-                way,
-                'railway_' || (CASE
-                                 WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
-                                 ELSE railway END) AS feature,
-                NULL AS tracktype,
-                NULL AS int_surface,
-                NULL AS int_access,
-                construction,
-                NULL AS service,
-                NULL AS link,
-                CASE
-                  WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
-                  ELSE 'no'
-                END AS preserved,
-                layer,
-                osm_id,
-                z_order
-              FROM planet_osm_line
-              WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
-                AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
             ) AS features
           ORDER BY
             layernotnull,
@@ -815,6 +791,64 @@ Layer:
       table: *turning-circle_sql
     properties:
       minzoom: 15
+  - id: railway-tunnels
+    geometry: linestring
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      # NOTE: This is the railway half of the tunnels layer query (see the tunnels, roads-casing and bridges
+      # layers for the other similar queries). It is a separate layer placed after roads-fill so that the
+      # dashed line of e.g. a subway running under a street is drawn on top of the road instead of being
+      # hidden by it. Highway tunnels stay in the tunnels layer, below the roads.
+      table: |-
+        (SELECT
+            way,
+            CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
+            tracktype,
+            int_surface,
+            int_access,
+            construction,
+            service,
+            link,
+            preserved,
+            COALESCE(layer,0) AS layernotnull
+          FROM ( -- subselect (railways only; roads are in tunnels)
+            SELECT
+                way,
+                'railway_' || (CASE
+                                 WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
+                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 ELSE railway END) AS feature,
+                NULL AS tracktype,
+                NULL AS int_surface,
+                NULL AS int_access,
+                construction,
+                NULL AS service,
+                NULL AS link,
+                CASE
+                  WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
+                  ELSE 'no'
+                END AS preserved,
+                layer,
+                osm_id,
+                z_order
+              FROM planet_osm_line
+              WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
+                AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
+            ) AS features
+          ORDER BY
+            layernotnull,
+            z_order,
+            CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service') THEN 0 ELSE 1 END,
+            CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
+            CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
+            osm_id
+        ) AS railway_tunnels
+    properties:
+      cache-features: true
+      group-by: layernotnull
+      minzoom: 10
   - id: roads-low-zoom
     geometry: linestring
     <<: *extents
