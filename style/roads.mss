@@ -824,9 +824,10 @@
       }
     }
 
-    [feature = 'railway_INT-minor-railway'] {
+    [feature = 'railway_INT-minor-railway'],
+    [feature = 'railway_INT-minor-subway'] {
       #bridges {
-        [zoom >= 13] {
+        [zoom >= 14] {
           line-width: 4;
           [zoom >= 15] {
             line-width: 5;
@@ -1102,9 +1103,10 @@
       }
     }
 
-    [feature = 'railway_INT-minor-railway'] {
+    [feature = 'railway_INT-minor-railway'],
+    [feature = 'railway_INT-minor-subway'] {
       #bridges {
-        [zoom >= 13] {
+        [zoom >= 14] {
           line-width: 3;
           [zoom >= 15] {
             line-width: 4;
@@ -2643,6 +2645,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
             light/line-dasharray: 0,8,8,1;
             [zoom >= 18] {
               dark/line-width: 3;
+              dark/line-color: #999;
               light/line-width: 1;
             }
           }
@@ -2665,6 +2668,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
             line-dasharray: 3,3;
             [zoom >= 18] {
               line-width: 2.7;
+              line-color: #999;
             }
           }
           [feature = 'railway_rail'][zoom >= 18] {
@@ -2683,9 +2687,12 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
       [zoom >= 12] {
         line-color: #ccc;
         [zoom >= 10] { line-color: #aaa; }
+        [zoom >= 12] { line-color: #888; }
         [zoom >= 13] { line-color: #666; }
         line-width: 1;
-        [zoom >= 13] { line-width: 2; }
+        [zoom >= 12] { line-width: 1.25; }
+        [zoom >= 13] { line-width: 1.5; }
+        [zoom >= 14] { line-width: 2; }
         [preserved = 'yes'][zoom >= 13] {
           #roads-fill, #bridges {
             dark/line-width: 3;
@@ -2722,20 +2729,21 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     }
 
     /* Minor trackage (service=spur/siding/yard) of every railway class except
-    railway=rail shares a single thin, light signature, so that the distinction
+    railway=rail shares a single thin signature, so that the distinction
     between the classes is drawn on the main tracks only. */
-    [feature = 'railway_INT-minor-railway'] {
-      [zoom >= 12] {
-        line-color: #aaa;
+    [feature = 'railway_INT-minor-railway'],
+    [feature = 'railway_INT-minor-subway'] {
+      [zoom >= 14] {
+        line-color: #6E6E6E;
+        /* subway keeps its lighter colour so it stays distinguishable from light_rail;
+           the lighter colour needs a touch more width to stay legible while thin */
+        [feature = 'railway_INT-minor-subway'] {
+          line-color: #999;
+          [zoom < 17] { line-width: 0.75; }
+        }
         line-width: 0.5;
-        [zoom >= 14] {
-          line-width: 0.75;
-        }
-        [zoom >= 15] {
-          line-width: 1;
-        }
         [zoom >= 17] {
-          line-width: 1.25;
+          line-width: 1;
         }
         [zoom >= 18] {
           line-width: 1.5;
