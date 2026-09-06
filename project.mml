@@ -491,10 +491,11 @@ Layer:
                 way,
                 'railway_' || (CASE
                                  WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 -- minor trackage of every railway class except rail shares one thin signature;
+                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 -- minor trackage of the other railway classes shares the tram-service signature;
                                  -- subway keeps its lighter colour so it stays distinguishable from light_rail
                                  WHEN (railway = 'subway' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-minor-subway'
-                                 WHEN (railway IN ('tram', 'light_rail', 'funicular', 'narrow_gauge', 'monorail')
+                                 WHEN (railway IN ('light_rail', 'funicular', 'narrow_gauge', 'monorail')
                                        AND service IN ('spur', 'siding', 'yard')) THEN 'INT-minor-railway'
                                  ELSE railway END) AS feature,
                 NULL AS tracktype,
@@ -518,7 +519,7 @@ Layer:
             layernotnull,
             z_order,
             CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
-            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_INT-minor-railway', 'railway_INT-minor-subway') THEN 0 ELSE 1 END,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service', 'railway_INT-minor-railway', 'railway_INT-minor-subway') THEN 0 ELSE 1 END,
             CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
             CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
             osm_id
@@ -739,10 +740,11 @@ Layer:
                 way,
                 'railway_' || (CASE
                                  WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 -- minor trackage of every railway class except rail shares one thin signature;
+                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 -- minor trackage of the other railway classes shares the tram-service signature;
                                  -- subway keeps its lighter colour so it stays distinguishable from light_rail
                                  WHEN (railway = 'subway' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-minor-subway'
-                                 WHEN (railway IN ('tram', 'light_rail', 'funicular', 'narrow_gauge', 'monorail')
+                                 WHEN (railway IN ('light_rail', 'funicular', 'narrow_gauge', 'monorail')
                                        AND service IN ('spur', 'siding', 'yard')) THEN 'INT-minor-railway'
                                  ELSE railway END) AS feature,
                 NULL AS tracktype,
@@ -769,7 +771,7 @@ Layer:
             layernotnull,
             z_order,
             CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
-            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_INT-minor-railway', 'railway_INT-minor-subway') THEN 0 ELSE 1 END,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service', 'railway_INT-minor-railway', 'railway_INT-minor-subway') THEN 0 ELSE 1 END,
             CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
             CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
             osm_id
@@ -908,10 +910,11 @@ Layer:
                 way,
                 'railway_' || (CASE
                                  WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-spur-siding-yard'
-                                 -- minor trackage of every railway class except rail shares one thin signature;
+                                 WHEN (railway = 'tram' AND service IN ('spur', 'siding', 'yard')) THEN 'tram-service'
+                                 -- minor trackage of the other railway classes shares the tram-service signature;
                                  -- subway keeps its lighter colour so it stays distinguishable from light_rail
                                  WHEN (railway = 'subway' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-minor-subway'
-                                 WHEN (railway IN ('tram', 'light_rail', 'funicular', 'narrow_gauge', 'monorail')
+                                 WHEN (railway IN ('light_rail', 'funicular', 'narrow_gauge', 'monorail')
                                        AND service IN ('spur', 'siding', 'yard')) THEN 'INT-minor-railway'
                                  ELSE railway END) AS feature,
                 NULL AS tracktype,
@@ -958,7 +961,7 @@ Layer:
             layernotnull,
             z_order,
             CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
-            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_INT-minor-railway', 'railway_INT-minor-subway') THEN 0 ELSE 1 END,
+            CASE WHEN feature IN ('railway_INT-spur-siding-yard', 'railway_tram-service', 'railway_INT-minor-railway', 'railway_INT-minor-subway') THEN 0 ELSE 1 END,
             CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END,
             CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END,
             osm_id

@@ -824,6 +824,7 @@
       }
     }
 
+    [feature = 'railway_tram-service'][zoom >= 15],
     [feature = 'railway_INT-minor-railway'],
     [feature = 'railway_INT-minor-subway'] {
       #bridges {
@@ -1103,6 +1104,7 @@
       }
     }
 
+    [feature = 'railway_tram-service'][zoom >= 15],
     [feature = 'railway_INT-minor-railway'],
     [feature = 'railway_INT-minor-subway'] {
       #bridges {
@@ -2729,8 +2731,10 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     }
 
     /* Minor trackage (service=spur/siding/yard) of every railway class except
-    railway=rail shares a single thin signature, so that the distinction
-    between the classes is drawn on the main tracks only. */
+    railway=rail shares the thin tram-service signature, so that the distinction
+    between the classes is drawn on the main tracks only. Tram keeps its
+    established z15 start; the other classes begin at z14. */
+    [feature = 'railway_tram-service'][zoom >= 15],
     [feature = 'railway_INT-minor-railway'],
     [feature = 'railway_INT-minor-subway'] {
       [zoom >= 14] {
