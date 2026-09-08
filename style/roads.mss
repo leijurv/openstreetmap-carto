@@ -347,6 +347,12 @@
 #railway-tunnels[feature = null]::bridges_and_tunnels_background { line: none; }
 #railway-tunnels[feature = null]::fill { line: none; }
 
+/* The railway-tunnels layer is a second copy of the railway tunnels, drawn above roads-fill.
+   The whole attachment is composited at reduced opacity so that where a tunnel runs under a road
+   its dashes show through faintly, while where nothing covers it the result is (nearly) identical
+   to the opaque copy drawn by the tunnels layer underneath. */
+#railway-tunnels::fill { opacity: 0.5; }
+
 #roads-casing, #bridges, #tunnels, #railway-tunnels {
   ::casing {
     [zoom >= 12] {
