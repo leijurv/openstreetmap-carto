@@ -824,9 +824,12 @@
       }
     }
 
-    [feature = 'railway_tram-service'][zoom >= 15],
-    [feature = 'railway_INT-minor-railway'],
-    [feature = 'railway_INT-minor-subway'] {
+    [feature = 'railway_INT-tram-service'][zoom >= 15],
+    [feature = 'railway_INT-light_rail-service'],
+    [feature = 'railway_INT-funicular-service'],
+    [feature = 'railway_INT-narrow_gauge-service'],
+    [feature = 'railway_INT-monorail-service'],
+    [feature = 'railway_INT-subway-service'] {
       #bridges {
         [zoom >= 14] {
           line-width: 4;
@@ -873,7 +876,7 @@
       }
     }
 
-    [feature = 'railway_INT-spur-siding-yard'] {
+    [feature = 'railway_INT-rail-service'] {
       #bridges {
         [zoom >= 13] {
           line-width: 5.7;
@@ -1070,7 +1073,7 @@
       }
     }
 
-    [feature = 'railway_INT-spur-siding-yard'] {
+    [feature = 'railway_INT-rail-service'] {
       #bridges {
         [zoom >= 13] {
           line-width: 4;
@@ -1104,9 +1107,12 @@
       }
     }
 
-    [feature = 'railway_tram-service'][zoom >= 15],
-    [feature = 'railway_INT-minor-railway'],
-    [feature = 'railway_INT-minor-subway'] {
+    [feature = 'railway_INT-tram-service'][zoom >= 15],
+    [feature = 'railway_INT-light_rail-service'],
+    [feature = 'railway_INT-funicular-service'],
+    [feature = 'railway_INT-narrow_gauge-service'],
+    [feature = 'railway_INT-monorail-service'],
+    [feature = 'railway_INT-subway-service'] {
       #bridges {
         [zoom >= 14] {
           line-width: 3;
@@ -2607,7 +2613,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     [feature = 'railway_rail'][zoom >= 8][zoom < 10],
     [feature = 'railway_rail'][preserved != 'yes'][zoom >= 10][zoom < 12],
     [feature = 'railway_rail'][zoom >= 12],
-    [feature = 'railway_INT-spur-siding-yard'][zoom >= 13] {
+    [feature = 'railway_INT-rail-service'][zoom >= 13] {
       [zoom < 13] {
         line-color: #787878;
         line-width: 0.5;
@@ -2640,7 +2646,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
               light/line-width: 2;
             }
           }
-          [feature = 'railway_INT-spur-siding-yard'] {
+          [feature = 'railway_INT-rail-service'] {
             dark/line-width: 2;
             dark/line-color: #aaa;
             light/line-width: 0.8;
@@ -2664,7 +2670,7 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
           line-width: 2.8;
           line-dasharray: 6,4;
           line-clip: false;
-          [feature = 'railway_INT-spur-siding-yard'] {
+          [feature = 'railway_INT-rail-service'] {
             line-color: #aaa;
             line-width: 1.9;
             line-dasharray: 3,3;
@@ -2731,17 +2737,20 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     }
 
     /* Minor trackage (service=spur/siding/yard) of every railway class except
-    railway=rail shares the thin tram-service signature, so that the distinction
-    between the classes is drawn on the main tracks only. Tram keeps its
-    established z15 start; the other classes begin at z14. */
-    [feature = 'railway_tram-service'][zoom >= 15],
-    [feature = 'railway_INT-minor-railway'],
-    [feature = 'railway_INT-minor-subway'] {
+    railway=rail shares one thin signature, so that the distinction between the
+    classes is drawn on the main tracks only. Tram keeps its established z15
+    start; the other classes begin at z14. */
+    [feature = 'railway_INT-tram-service'][zoom >= 15],
+    [feature = 'railway_INT-light_rail-service'],
+    [feature = 'railway_INT-funicular-service'],
+    [feature = 'railway_INT-narrow_gauge-service'],
+    [feature = 'railway_INT-monorail-service'],
+    [feature = 'railway_INT-subway-service'] {
       [zoom >= 14] {
         line-color: #6E6E6E;
         /* subway keeps its lighter colour so it stays distinguishable from light_rail;
            the lighter colour needs a touch more width to stay legible while thin */
-        [feature = 'railway_INT-minor-subway'] {
+        [feature = 'railway_INT-subway-service'] {
           line-color: #999;
           [zoom < 17] { line-width: 0.75; }
         }
