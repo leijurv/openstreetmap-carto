@@ -183,6 +183,10 @@ PostgreSQL sorts the results:
 * Put the geometry (`way`) at the end of the `SELECT` list, including in queries without `ORDER BY`.
 * Select expressions used for sorting as named columns, and use those names in `ORDER BY`.
 
+Among the sort columns, prefer placing non-null, fixed-width columns before nullable
+or variable-width columns. Their order in `SELECT` need not match their order in
+`ORDER BY`; leave the intended sorting precedence unchanged.
+
 This lets PostgreSQL access sort keys without repeatedly stepping over the geometry.
 Mapnik selects only the columns needed by the style, so columns added solely for
 sorting are not sent to Mapnik. See [#5297](https://github.com/openstreetmap-carto/openstreetmap-carto/pull/5297)
