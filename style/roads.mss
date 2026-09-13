@@ -336,14 +336,26 @@
 
 @railway-text-repeat-distance: 200;
 
-// Ensures that the 4 attachments in the tunnels layer are always correctly ordered 
-// (Equivalent for bridges layer is in water.mss)
-#tunnels[feature = null]::halo { line: none; }
-#tunnels[feature = null]::casing { line: none; }
-#tunnels[feature = null]::bridges_and_tunnels_background { line: none; }
-#tunnels[feature = null]::fill { line: none; }
+// SQL groups fills and access markings by layer and drawing priority.
+// Access and surface subdivide fill groups; osm_id only orders ways inside them.
+// Each group uses the same attachments; railway groups follow road groups
+// with the same z_order. Bridge/tunnel backgrounds form an earlier group.
+// At z<15, render='all' keeps backgrounds and fills on the same SQL row.
+// The corresponding bridge attachments are ordered in water.mss.
+#roads-fill[feature = null]::halo[zoom >= 10][zoom <= 12] { line: none; }
+#tunnels[feature = null]::halo[zoom >= 10][zoom <= 12] { line: none; }
+#tunnels[feature = null]::casing[zoom >= 12] { line: none; }
+#tunnels[feature = null]::bridges_and_tunnels_background[zoom >= 13] { line: none; }
+#roads-fill[feature = null],
+#tunnels[feature = null],
+#bridges[feature = null] {
+  ::fill[zoom >= 10] { line: none; }
+  ::access[zoom >= 15] { line: none; }
+}
 
-#roads-casing, #bridges, #tunnels {
+#roads-casing,
+#bridges[render != 'fill'],
+#tunnels[render != 'fill'] {
   ::casing {
     [zoom >= 12] {
       [feature = 'highway_motorway'] {
@@ -1159,7 +1171,10 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
 #bridges[zoom >= 10],
 #tunnels[zoom >= 10] {
 
-  ::halo {
+  #roads-low-zoom::halo,
+  #roads-fill::halo,
+  #bridges::halo[render != 'fill'],
+  #tunnels::halo[render != 'fill'] {
     [zoom = 9][feature = 'highway_secondary'] {
       line-color: @halo-color-for-minor-road;
       line-width: 2.2;
@@ -1221,7 +1236,10 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
     }
   }
 
-  ::fill {
+  #roads-low-zoom::fill,
+  #roads-fill::fill,
+  #bridges::fill[render != 'background'],
+  #tunnels::fill[render != 'background'] {
     /*
      * The highway_construction rules below are quite sensitive to re-ordering, since the instances end up swapping round
      * (and then the dashes appear below the fills). See:
@@ -3541,9 +3559,9 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
   }
 }
 
-#tunnels::fill,
-#roads-fill::fill,
-#bridges::fill {
+#tunnels::access[render != 'background'],
+#roads-fill::access,
+#bridges::access[render != 'background'] {
   [int_access = 'restricted'] {
     [feature = 'highway_motorway'],
     [feature = 'highway_trunk'],

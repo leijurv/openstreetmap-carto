@@ -462,7 +462,13 @@ Layer:
             service,
             link,
             preserved,
-            COALESCE(layer,0) AS layernotnull
+            COALESCE(layer,0) AS layernotnull,
+            render,
+            COALESCE(layer,0)::text || '/' || feature_priority::text ||
+              CASE WHEN render = 'fill' THEN '/' ||
+                ((CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END) * 2 +
+                 CASE WHEN int_surface = 'unpaved' THEN 0 ELSE 1 END)::text
+              ELSE '' END AS draw_group
           FROM ( -- subselect that contains both roads and rail
             SELECT
                 way,
@@ -511,8 +517,24 @@ Layer:
               WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
                 AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
             ) AS features
+          CROSS JOIN LATERAL (
+            -- Below z15, draw backgrounds and fills from the same row.
+            -- With access markings, first finish all backgrounds for the
+            -- physical layer, then group fills/access by z_order, access and
+            -- surface. Keep osm_id as a tie-breaker within each group.
+            SELECT
+                CASE WHEN pass = 1 THEN 'fill'
+                  WHEN Z(!scale_denominator!) >= 15 THEN 'background'
+                  ELSE 'all' END AS render,
+                CASE WHEN Z(!scale_denominator!) < 15 THEN 0
+                  WHEN pass = 0 THEN -1
+                  ELSE COALESCE(z_order,0) * 2 + CASE WHEN substring(feature for 8) = 'railway_' THEN 1 ELSE 0 END
+                END AS feature_priority
+              FROM generate_series(0, CASE WHEN Z(!scale_denominator!) >= 15 THEN 1 ELSE 0 END) AS drawing(pass)
+          ) AS drawing
           ORDER BY
             layernotnull,
+            feature_priority,
             z_order,
             CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
             CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
@@ -523,7 +545,7 @@ Layer:
         ) AS tunnels
     properties:
       cache-features: true
-      group-by: layernotnull
+      group-by: draw_group
       minzoom: 10
   - id: leisure-track
     geometry: linestring
@@ -706,7 +728,20 @@ Layer:
             service,
             link,
             preserved,
-            COALESCE(layer,0) AS layernotnull
+            COALESCE(layer,0) AS layernotnull,
+            -- Keep the original z_order for both fills and access markings,
+            -- including links. Separate railway groups also keep tracks above
+            -- access markings on ways tagged as both highway and railway.
+            -- Subdivide by the access/surface buckets used by ORDER BY, so
+            -- public fills cover restricted markings and paved fills win
+            -- within an access category. Do not split groups by osm_id.
+            -- Below z15 there are no access markings: retain one group per layer.
+            COALESCE(layer,0)::text || '/' || (CASE WHEN Z(!scale_denominator!) >= 15
+              THEN COALESCE(z_order,0) * 2 + CASE WHEN substring(feature for 8) = 'railway_' THEN 1 ELSE 0 END
+              ELSE 0 END)::text || CASE WHEN Z(!scale_denominator!) >= 15 THEN '/' ||
+                ((CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END) * 2 +
+                 CASE WHEN int_surface = 'unpaved' THEN 0 ELSE 1 END)::text
+              ELSE '' END AS draw_group
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
                 way,
@@ -810,6 +845,7 @@ Layer:
       table: *roads_sql
     properties:
       cache-features: true
+      group-by: draw_group
       minzoom: 10
   - id: turning-circle-fill
     geometry: point
@@ -874,7 +910,13 @@ Layer:
             preserved,
             int_intermittent,
             'bridge' AS int_bridge_tunnel,
-            COALESCE(layer,0) AS layernotnull
+            COALESCE(layer,0) AS layernotnull,
+            render,
+            COALESCE(layer,0)::text || '/' || feature_priority::text ||
+              CASE WHEN render = 'fill' THEN '/' ||
+                ((CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END) * 2 +
+                 CASE WHEN int_surface = 'unpaved' THEN 0 ELSE 1 END)::text
+              ELSE '' END AS draw_group
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
                 way,
@@ -947,8 +989,24 @@ Layer:
                 AND (bridge IN ('yes', 'aqueduct') OR (waterway = 'fish_pass'))
                 AND (tunnel IS NULL OR tunnel NOT IN ('yes', 'culvert', 'flooded'))
             ) AS features
+          CROSS JOIN LATERAL (
+            -- Below z15, draw backgrounds and fills from the same row.
+            -- With access markings, first finish all backgrounds for the
+            -- physical layer, then group fills/access by z_order, access and
+            -- surface. Keep osm_id as a tie-breaker within each group.
+            SELECT
+                CASE WHEN pass = 1 THEN 'fill'
+                  WHEN Z(!scale_denominator!) >= 15 THEN 'background'
+                  ELSE 'all' END AS render,
+                CASE WHEN Z(!scale_denominator!) < 15 THEN 0
+                  WHEN pass = 0 THEN -1
+                  ELSE COALESCE(z_order,0) * 2 + CASE WHEN substring(feature for 8) = 'railway_' THEN 1 ELSE 0 END
+                END AS feature_priority
+              FROM generate_series(0, CASE WHEN Z(!scale_denominator!) >= 15 THEN 1 ELSE 0 END) AS drawing(pass)
+          ) AS drawing
           ORDER BY
             layernotnull,
+            feature_priority,
             z_order,
             CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END,
             CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
@@ -959,7 +1017,7 @@ Layer:
         ) AS bridges
     properties:
       cache-features: true
-      group-by: layernotnull
+      group-by: draw_group
       minzoom: 10
   - id: aeroways
     geometry: linestring

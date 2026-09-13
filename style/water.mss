@@ -75,11 +75,10 @@
   }
 }
 
-// Ensure that the 4 attachments in the bridges layer are always correctly ordered
-#bridges[feature = null]::halo { line: none; }
-#bridges[feature = null]::casing { line: none; }
-#bridges[feature = null]::bridges_and_tunnels_background { line: none; }
-#bridges[feature = null]::fill { line: none; }
+// Order bridge backgrounds before the fill/access attachments in roads.mss.
+#bridges[feature = null]::halo[zoom >= 10][zoom <= 12] { line: none; }
+#bridges[feature = null]::casing[zoom >= 12] { line: none; }
+#bridges[feature = null]::bridges_and_tunnels_background[zoom >= 13] { line: none; }
 
 #water-lines::casing {
   // white glow used when water stroke width is less than 3.5 px and only at "mid zoom" (13 - 17)
@@ -125,7 +124,7 @@
   }
 }
 
-#bridges::casing[zoom >= 14] {
+#bridges::casing[render != 'fill'][zoom >= 14] {
   [feature = 'waterway_river'] {
     line-color: black;
     line-join: round;
@@ -164,7 +163,7 @@
 }
 
 #water-lines::fill,
-#bridges::fill {
+#bridges::fill[render != 'background'] {
   [feature = 'waterway_river'][zoom >= 12] {
     [int_bridge_tunnel = 'tunnel'] {
       // Background for dashed tunnel casings
