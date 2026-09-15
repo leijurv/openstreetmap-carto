@@ -704,7 +704,8 @@ Layer:
             service,
             link,
             preserved,
-            int_crossing_island,
+            line_width,
+            line_offset,
             COALESCE(layer,0) AS layernotnull
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
@@ -723,7 +724,8 @@ Layer:
                   ELSE 'no'
                 END AS link,
                 NULL AS preserved,
-                NULL AS int_crossing_island,
+                NULL::float AS line_width,
+                NULL::float AS line_offset,
                 layer,
                 osm_id,
                 z_order
@@ -751,7 +753,8 @@ Layer:
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
                   ELSE 'no'
                 END AS preserved,
-                NULL AS int_crossing_island,
+                NULL::float AS line_width,
+                NULL::float AS line_offset,
                 layer,
                 osm_id,
                 z_order
@@ -763,12 +766,15 @@ Layer:
                 AND (railway NOT IN ('platform') OR (tags->'location' NOT IN ('underground')) OR (tags->'location') IS NULL)
                 AND railway IS NOT NULL -- end of rail select
             UNION ALL
-            -- Marking areas for pedestrian crossings mapped as highway=crossing nodes.
+            -- Markings of pedestrian crossings mapped as highway=crossing nodes.
             --
-            -- Each row is a short segment of the road being crossed, centred on the
-            -- crossing node and running along the road, on which the bars are drawn.
-            -- The markings therefore follow the road without depending on the geometry
-            -- of any separately mapped crossing way.
+            -- Each row is one bar of the markings: a short segment of the road being
+            -- crossed, centred on the crossing node and running along the road, with
+            -- the width of the bar and its offset from the centre line in pixels for
+            -- the style to draw it with. The markings therefore follow the road without
+            -- depending on the geometry of any separately mapped crossing way, and are
+            -- sized to the road without the style spelling out the dimensions for every
+            -- road class and zoom level.
             --
             -- The node is matched to the road by exact coordinate equality against the
             -- road's vertices: a crossing node is a member node of the way, so both
@@ -790,7 +796,8 @@ Layer:
                 NULL AS service,
                 'no' AS link,
                 NULL AS preserved,
-                crossings.int_crossing_island,
+                part.line_width,
+                part.line_offset,
                 crossings.layernotnull AS layer,
                 crossings.osm_id,
                 crossings.z_order
@@ -896,13 +903,47 @@ Layer:
                   ) AS kept
                   GROUP BY kept.x, kept.y, kept.osm_id, kept.int_crossing_island, kept.int_tactile_paving
               ) AS crossings
+              -- the width and casing the road is drawn with at z18, z19 and z20, the
+              -- same numbers as the width and casing variables in roads.mss, and the
+              -- number of bars across it: five on the classes drawn at full width and
+              -- three on the narrower ones, which keeps the bars around two pixels wide
+              JOIN (VALUES
+                  ('motorway',       21,  27, 33, 1.0, 5),
+                  ('motorway_link',  13,  16, 17, 0.8, 3),
+                  ('trunk',          21,  27, 27, 1.0, 5),
+                  ('trunk_link',     13,  16, 16, 0.8, 3),
+                  ('primary',        21,  27, 27, 1.0, 5),
+                  ('primary_link',   13,  16, 16, 0.8, 3),
+                  ('secondary',      21,  27, 27, 1.0, 5),
+                  ('secondary_link', 13,  16, 16, 0.8, 3),
+                  ('tertiary',       21,  27, 27, 0.8, 5),
+                  ('tertiary_link',  13,  16, 16, 0.8, 3),
+                  ('unclassified',   13,  17, 17, 0.8, 3),
+                  ('residential',    13,  17, 17, 0.8, 3),
+                  ('living_street',  13,  17, 17, 0.8, 3),
+                  ('road',            8.5, 11, 11, 0.8, 3)
+              ) AS road(highway, z18, z19, z20, casing, bars) ON road.highway = crossings.highway
               CROSS JOIN LATERAL (
-                SELECT ('crossing_' || crossings.highway) AS feature, crossings.way AS way
+                SELECT (CASE LEAST(Z(!scale_denominator!), 20) WHEN 18 THEN road.z18 WHEN 19 THEN road.z19 ELSE road.z20 END) - 2 * road.casing AS width
+              ) AS fill
+              -- the bars cover 0.8 of the fill and the gaps between them are as wide
+              -- as the bars, so n bars are 2n-1 slots wide
+              CROSS JOIN LATERAL (
+                SELECT 0.8 * fill.width / (2 * road.bars - 1) AS width
+              ) AS bar
+              CROSS JOIN LATERAL (
+                -- the bars, two slots apart either side of the centre line
+                SELECT ('crossing_' || crossings.highway) AS feature, crossings.way, bar.width AS line_width, 2 * k * bar.width AS line_offset
+                  FROM generate_series(-(road.bars - 1) / 2, (road.bars - 1) / 2) AS k
+                  -- the refuge takes the place of the bar on the centre line
+                  WHERE NOT (k = 0 AND crossings.int_crossing_island = 'yes')
                 UNION ALL
-                SELECT ('crossing_island_' || crossings.highway), crossings.short_way
+                SELECT 'crossing_island', crossings.short_way, bar.width, 0
                   WHERE crossings.int_crossing_island = 'yes'
                 UNION ALL
-                SELECT ('crossing_tactile_' || crossings.highway), crossings.short_way
+                -- the tactile paving, a strip across the kerb on either side
+                SELECT 'crossing_tactile', crossings.short_way, 0.12 * fill.width, side * 0.5 * fill.width
+                  FROM (VALUES (-1), (1)) AS kerb(side)
                   WHERE crossings.int_tactile_paving = 'yes'
               ) AS part
               -- three or more ways meeting at the node cannot be merged into a single
