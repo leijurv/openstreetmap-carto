@@ -3651,21 +3651,127 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
 
 /* Pedestrian crossings mapped as highway=crossing nodes.
 
-   The query returns one feature per bar of the markings: a short segment of the
-   road centre line, centred on the crossing node and running along the road,
-   with the width of the bar and its offset from the centre line in pixels. The
-   bars are therefore drawn along the direction of traffic and spread across the
-   road the same way the markings are painted in reality, and they are sized to
-   the width the road is drawn at without the dimensions being spelt out here
-   for every road class and zoom level. The style adds the colour, picked to
-   contrast with the fill of the road.
+   The features are short pieces of the road centre line, centred on the
+   crossing node and running along the road, so the bars are drawn along the
+   direction of traffic and are spread across the road with line-offset -- the
+   same way the markings are painted in reality. The query supplies the width
+   the road fill is drawn at in pixels as [fill_width], so the layout is written
+   once here rather than for every road class and zoom level.
 
-   A refuge from crossing:island=yes takes the place of the bar on the centre
-   line and tactile paving is a strip across the kerb on either side. Both
-   belong to the road rather than to the markings and are shorter than the
-   bars, so they read as patches rather than as stripes across the whole road. */
+   The bars cover @crossing-span of the road fill width with half of that span
+   painted, so a run of n bars is 2n-1 equal slots wide. The count is chosen per
+   road class to keep the bars in the same range of a couple of pixels rather
+   than letting them grow with the road: five for the classes drawn at full
+   width, three for the narrower ones.
+
+   The bars stop short of the edge of the road fill, which leaves room for the
+   tactile paving strips to sit across the kerb on either side.
+
+   A refuge from crossing:island=yes and the tactile paving both belong to the
+   road rather than to the markings, so the query returns them as features of
+   their own (int_crossing_part) over the middle half of the marking depth:
+   they read as patches rather than as stripes running the whole way over the
+   road. The bar counts are odd, so the refuge takes the place of the bar on
+   the centre line, which is hidden where there is one. */
+
+@crossing-span: 0.8;
+@crossing-bar-3: @crossing-span / 5;
+@crossing-bar-5: @crossing-span / 9;
+@crossing-tactile-width: 0.12;
 
 #roads-fill::fill {
+  /* five bars on the classes drawn at full width */
+  [feature = 'crossing_motorway'],
+  [feature = 'crossing_trunk'],
+  [feature = 'crossing_primary'],
+  [feature = 'crossing_secondary'],
+  [feature = 'crossing_tertiary'] {
+    [zoom >= 18] {
+      [int_crossing_part = 'bars'] {
+        bar_c/line-width: @crossing-bar-5 * [fill_width];
+        bar_l/line-width: @crossing-bar-5 * [fill_width];
+        bar_r/line-width: @crossing-bar-5 * [fill_width];
+        bar_ll/line-width: @crossing-bar-5 * [fill_width];
+        bar_rr/line-width: @crossing-bar-5 * [fill_width];
+        bar_l/line-offset: 2 * @crossing-bar-5 * [fill_width];
+        bar_r/line-offset: -2 * @crossing-bar-5 * [fill_width];
+        bar_ll/line-offset: 4 * @crossing-bar-5 * [fill_width];
+        bar_rr/line-offset: -4 * @crossing-bar-5 * [fill_width];
+        bar_c/line-join: round;
+        bar_l/line-join: round;
+        bar_r/line-join: round;
+        bar_ll/line-join: round;
+        bar_rr/line-join: round;
+        bar_c/line-color: @crossing-marking;
+        bar_l/line-color: @crossing-marking;
+        bar_r/line-color: @crossing-marking;
+        bar_ll/line-color: @crossing-marking;
+        bar_rr/line-color: @crossing-marking;
+        [feature = 'crossing_motorway'],
+        [feature = 'crossing_trunk'],
+        [feature = 'crossing_primary'] {
+          bar_c/line-color: @crossing-marking-light;
+          bar_l/line-color: @crossing-marking-light;
+          bar_r/line-color: @crossing-marking-light;
+          bar_ll/line-color: @crossing-marking-light;
+          bar_rr/line-color: @crossing-marking-light;
+        }
+        /* the refuge is drawn on the centre line instead, and the bar there
+           would only show through at either end of it */
+        [int_crossing_island = 'yes'] {
+          bar_c/line-opacity: 0;
+        }
+      }
+      [int_crossing_part = 'island'] {
+        island/line-width: @crossing-bar-5 * [fill_width];
+      }
+    }
+  }
+  /* three bars on the narrower classes */
+  [feature = 'crossing_motorway_link'],
+  [feature = 'crossing_trunk_link'],
+  [feature = 'crossing_primary_link'],
+  [feature = 'crossing_secondary_link'],
+  [feature = 'crossing_tertiary_link'],
+  [feature = 'crossing_unclassified'],
+  [feature = 'crossing_residential'],
+  [feature = 'crossing_living_street'],
+  [feature = 'crossing_road'] {
+    [zoom >= 18] {
+      [int_crossing_part = 'bars'] {
+        bar_c/line-width: @crossing-bar-3 * [fill_width];
+        bar_l/line-width: @crossing-bar-3 * [fill_width];
+        bar_r/line-width: @crossing-bar-3 * [fill_width];
+        bar_l/line-offset: 2 * @crossing-bar-3 * [fill_width];
+        bar_r/line-offset: -2 * @crossing-bar-3 * [fill_width];
+        bar_c/line-join: round;
+        bar_l/line-join: round;
+        bar_r/line-join: round;
+        bar_c/line-color: @crossing-marking;
+        bar_l/line-color: @crossing-marking;
+        bar_r/line-color: @crossing-marking;
+        [feature = 'crossing_motorway_link'],
+        [feature = 'crossing_trunk_link'],
+        [feature = 'crossing_primary_link'] {
+          bar_c/line-color: @crossing-marking-light;
+          bar_l/line-color: @crossing-marking-light;
+          bar_r/line-color: @crossing-marking-light;
+        }
+        [feature = 'crossing_road'] {
+          bar_c/line-color: @crossing-marking-road;
+          bar_l/line-color: @crossing-marking-road;
+          bar_r/line-color: @crossing-marking-road;
+        }
+        [int_crossing_island = 'yes'] {
+          bar_c/line-opacity: 0;
+        }
+      }
+      [int_crossing_part = 'island'] {
+        island/line-width: @crossing-bar-3 * [fill_width];
+      }
+    }
+  }
+  /* the refuge and the tactile paving are the same on every class */
   [feature = 'crossing_motorway'],
   [feature = 'crossing_motorway_link'],
   [feature = 'crossing_trunk'],
@@ -3679,31 +3785,22 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
   [feature = 'crossing_unclassified'],
   [feature = 'crossing_residential'],
   [feature = 'crossing_living_street'],
-  [feature = 'crossing_road'],
-  [feature = 'crossing_island'],
-  [feature = 'crossing_tactile'] {
+  [feature = 'crossing_road'] {
     [zoom >= 18] {
-      line-width: [line_width];
-      line-offset: [line_offset];
-      line-join: round;
-      line-color: @crossing-marking;
-      [feature = 'crossing_motorway'],
-      [feature = 'crossing_motorway_link'],
-      [feature = 'crossing_trunk'],
-      [feature = 'crossing_trunk_link'],
-      [feature = 'crossing_primary'],
-      [feature = 'crossing_primary_link'] {
-        line-color: @crossing-marking-light;
+      [int_crossing_part = 'island'] {
+        island/line-color: @crossing-island;
+        island/line-join: round;
+        island/line-cap: round;
       }
-      [feature = 'crossing_road'] {
-        line-color: @crossing-marking-road;
-      }
-      [feature = 'crossing_island'] {
-        line-color: @crossing-island;
-        line-cap: round;
-      }
-      [feature = 'crossing_tactile'] {
-        line-color: @crossing-tactile-paving;
+      [int_crossing_part = 'tactile'] {
+        tactile_l/line-color: @crossing-tactile-paving;
+        tactile_r/line-color: @crossing-tactile-paving;
+        tactile_l/line-join: round;
+        tactile_r/line-join: round;
+        tactile_l/line-width: @crossing-tactile-width * [fill_width];
+        tactile_r/line-width: @crossing-tactile-width * [fill_width];
+        tactile_l/line-offset: 0.5 * [fill_width];
+        tactile_r/line-offset: -0.5 * [fill_width];
       }
     }
   }

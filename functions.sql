@@ -152,3 +152,44 @@ BEGIN
   RETURN listtext;
 END;
 $$;
+
+/* The widths the roads are drawn with from z18 on, in pixels: the same numbers
+   as the *-width-z* variables in roads.mss, for what is laid out across a road
+   in SQL, like the markings of pedestrian crossings. The width is that of the
+   whole line, casing included; above z20 the roads keep the widths of z20. */
+CREATE OR REPLACE FUNCTION carto_highway_width(highway text, zoom integer)
+  RETURNS float
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT (CASE highway                -- z18  z19  z20
+    WHEN 'motorway'       THEN ARRAY[21,   27,  33]
+    WHEN 'motorway_link'  THEN ARRAY[13,   16,  17]
+    WHEN 'trunk'          THEN ARRAY[21,   27,  27]
+    WHEN 'trunk_link'     THEN ARRAY[13,   16,  16]
+    WHEN 'primary'        THEN ARRAY[21,   27,  27]
+    WHEN 'primary_link'   THEN ARRAY[13,   16,  16]
+    WHEN 'secondary'      THEN ARRAY[21,   27,  27]
+    WHEN 'secondary_link' THEN ARRAY[13,   16,  16]
+    WHEN 'tertiary'       THEN ARRAY[21,   27,  27]
+    WHEN 'tertiary_link'  THEN ARRAY[13,   16,  16]
+    WHEN 'unclassified'   THEN ARRAY[13,   17,  17]
+    WHEN 'residential'    THEN ARRAY[13,   17,  17]
+    WHEN 'living_street'  THEN ARRAY[13,   17,  17]
+    WHEN 'road'           THEN ARRAY[8.5,  11,  11]
+  END)[CASE LEAST(zoom, 20) WHEN 18 THEN 1 WHEN 19 THEN 2 ELSE 3 END]::float
+$$;
+
+/* The width of the casing on either side of a road from z18 on, in pixels: the
+   *-casing-width-z* variables in roads.mss, which do not change between z18
+   and z20. */
+CREATE OR REPLACE FUNCTION carto_highway_casing_width(highway text, zoom integer)
+  RETURNS float
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+AS $$
+SELECT CASE
+    WHEN highway IN ('motorway', 'trunk', 'primary', 'secondary') THEN 1.0
+    ELSE 0.8
+  END::float
+$$;
