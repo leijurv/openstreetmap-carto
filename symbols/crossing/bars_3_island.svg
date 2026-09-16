@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="25" height="16" viewBox="0 0 25 16">
+  <!-- unpainted frame so the symbol scales to the whole box, not to the bars -->
+  <rect width="25" height="16" fill="none"/>
+  <path d="M2.5 0h4v16h-4zM18.5 0h4v16h-4z"/>
+</svg>

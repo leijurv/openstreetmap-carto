@@ -3651,19 +3651,15 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
 
 /* Pedestrian crossings mapped as highway=crossing nodes.
 
-   The query returns one feature per bar of the markings: a short segment of the
-   road centre line, centred on the crossing node and running along the road,
-   with the width of the bar and its offset from the centre line in pixels. The
-   bars are therefore drawn along the direction of traffic and spread across the
-   road the same way the markings are painted in reality, and they are sized to
-   the width the road is drawn at without the dimensions being spelt out here
-   for every road class and zoom level. The style adds the colour, picked to
-   contrast with the fill of the road.
+   Each crossing is a symbol of the markings placed on the node and turned to
+   the direction of the road through it, the way the French style draws them.
+   The query supplies that direction, the width the road is drawn at and the
+   depth of the markings in pixels, so the symbol is stretched to the road. The
+   symbols come in three and five bar variants, with and without the gap for a
+   refuge, and are recoloured here to contrast with the fill of the road.
 
-   A refuge from crossing:island=yes takes the place of the bar on the centre
-   line and tactile paving is a strip across the kerb on either side. Both
-   belong to the road rather than to the markings and are shorter than the
-   bars, so they read as patches rather than as stripes across the whole road. */
+   The symbol is a straight rectangle, so it does not follow a road that bends
+   within the depth of the markings. */
 
 #roads-fill::fill {
   [feature = 'crossing_motorway'],
@@ -3679,31 +3675,44 @@ tertiary is rendered from z10 and is not included in osm_planet_roads. */
   [feature = 'crossing_unclassified'],
   [feature = 'crossing_residential'],
   [feature = 'crossing_living_street'],
-  [feature = 'crossing_road'],
-  [feature = 'crossing_island'],
-  [feature = 'crossing_tactile'] {
+  [feature = 'crossing_road'] {
     [zoom >= 18] {
-      line-width: [line_width];
-      line-offset: [line_offset];
-      line-join: round;
-      line-color: @crossing-marking;
+      marker-file: url('symbols/crossing/bars_[bars].svg');
+      marker-width: [width];
+      marker-height: [depth];
+      marker-transform: rotate([angle]);
+      marker-fill: @crossing-marking;
+      marker-allow-overlap: true;
+      marker-ignore-placement: true;
       [feature = 'crossing_motorway'],
       [feature = 'crossing_motorway_link'],
       [feature = 'crossing_trunk'],
       [feature = 'crossing_trunk_link'],
       [feature = 'crossing_primary'],
       [feature = 'crossing_primary_link'] {
-        line-color: @crossing-marking-light;
+        marker-fill: @crossing-marking-light;
       }
       [feature = 'crossing_road'] {
-        line-color: @crossing-marking-road;
+        marker-fill: @crossing-marking-road;
       }
-      [feature = 'crossing_island'] {
-        line-color: @crossing-island;
-        line-cap: round;
+      [int_crossing_island = 'yes'] {
+        marker-file: url('symbols/crossing/bars_[bars]_island.svg');
+        island/marker-file: url('symbols/crossing/island_[bars].svg');
+        island/marker-width: [width];
+        island/marker-height: [depth];
+        island/marker-transform: rotate([angle]);
+        island/marker-fill: @crossing-island;
+        island/marker-allow-overlap: true;
+        island/marker-ignore-placement: true;
       }
-      [feature = 'crossing_tactile'] {
-        line-color: @crossing-tactile-paving;
+      [int_tactile_paving = 'yes'] {
+        tactile/marker-file: url('symbols/crossing/tactile.svg');
+        tactile/marker-width: [width] * 1.12;
+        tactile/marker-height: [depth] / 2;
+        tactile/marker-transform: rotate([angle]);
+        tactile/marker-fill: @crossing-tactile-paving;
+        tactile/marker-allow-overlap: true;
+        tactile/marker-ignore-placement: true;
       }
     }
   }
