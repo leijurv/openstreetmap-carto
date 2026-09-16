@@ -775,17 +775,6 @@ Layer:
             -- depending on the geometry of any separately mapped crossing way, and are
             -- sized to the road without the style spelling out the dimensions for every
             -- road class and zoom level.
-            --
-            -- The node is matched to the road by exact coordinate equality against the
-            -- road's vertices: a crossing node is a member node of the way, so both
-            -- geometries come from the same OSM node and are identical. That is both
-            -- stricter and much cheaper than a distance join, which cannot use an index
-            -- selectively because road bounding boxes are large compared to any
-            -- sensible search radius.
-            --
-            -- Where a node is the shared end node of two ways one segment is returned
-            -- for each; each is clipped at the node and together they cover the whole
-            -- marking area.
             SELECT
                 part.way,
                 part.feature,
@@ -798,111 +787,84 @@ Layer:
                 NULL AS preserved,
                 part.line_width,
                 part.line_offset,
-                crossings.layernotnull AS layer,
-                crossings.osm_id,
-                crossings.z_order
+                crossing.layernotnull AS layer,
+                crossing.osm_id,
+                crossing.z_order
               FROM (
+                -- one row per crossing node: the piece of road through it, and the
+                -- class and layer of that road
                 SELECT
-                    -- where the node is the end of two ways, the two clipped halves are
-                    -- merged into a single line so that the bars are offset around the
-                    -- corner continuously instead of as two pieces that do not meet
-                    ST_LineMerge(ST_Collect(kept.way)) AS way,
-                    ST_LineMerge(ST_Collect(kept.short_way)) AS short_way,
-                    (array_agg(kept.highway ORDER BY kept.z_order DESC, kept.road_id))[1] AS highway,
-                    (array_agg(kept.layernotnull ORDER BY kept.z_order DESC, kept.road_id))[1] AS layernotnull,
-                    max(kept.z_order) AS z_order,
-                    kept.osm_id,
-                    kept.int_crossing_island,
-                    kept.int_tactile_paving
+                    node.osm_id,
+                    node.int_crossing_island,
+                    node.int_tactile_paving,
+                    -- where the node is the end of two ways, the two halves are merged
+                    -- into a single line so that the bars run around the corner
+                    -- continuously instead of as two pieces that do not meet
+                    ST_LineMerge(ST_Collect(piece.way)) AS way,
+                    ST_LineMerge(ST_Collect(piece.short_way)) AS short_way,
+                    -- and the markings take after the more important of the two roads
+                    (array_agg(road.highway ORDER BY road.z_order DESC, road.osm_id))[1] AS highway,
+                    (array_agg(road.layernotnull ORDER BY road.z_order DESC, road.osm_id))[1] AS layernotnull,
+                    max(road.z_order) AS z_order
                   FROM (
                     SELECT
-                        a.way, a.short_way, a.highway, a.road_id, a.layernotnull, a.z_order, a.osm_id,
-                        a.int_crossing_island, a.int_tactile_paving, a.x, a.y
+                        osm_id,
+                        way,
+                        CASE WHEN tags->'crossing:island' = 'yes' THEN 'yes' ELSE 'no' END AS int_crossing_island,
+                        CASE WHEN tags->'tactile_paving' = 'yes' THEN 'yes' ELSE 'no' END AS int_tactile_paving
+                      FROM planet_osm_point
+                      WHERE way && !bbox!
+                        AND Z(!scale_denominator!) >= 18
+                        AND highway = 'crossing'
+                        -- marked, preferring crossing:markings over the crossing key
+                        AND CASE
+                              WHEN tags->'crossing:markings' IS NOT NULL THEN tags->'crossing:markings' <> 'no'
+                              ELSE tags->'crossing' IN ('marked', 'zebra', 'uncontrolled', 'traffic_signals')
+                            END
+                  ) AS node
+                  -- the roads through the node, restricted to the roads the road select
+                  -- above draws so that a crossing on a bridge or in a tunnel is not
+                  -- drawn on the surface
+                  CROSS JOIN LATERAL (
+                    SELECT way, highway, COALESCE(layer, 0) AS layernotnull, z_order, osm_id
+                      FROM planet_osm_line
+                      WHERE ST_Intersects(way, node.way)
+                        AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+                                        'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+                                        'unclassified', 'residential', 'living_street', 'road')
+                        AND (tunnel IS NULL OR NOT tunnel IN ('yes', 'building_passage', 'avalanche_protector'))
+                        AND (covered IS NULL OR NOT covered = 'yes')
+                        AND (bridge IS NULL OR NOT bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct'))
+                        AND ST_Length(way) > 0
+                  ) AS road
+                  -- the piece of the road over the depth of the markings, 3 Mercator
+                  -- metres either side of the node
+                  CROSS JOIN LATERAL (
+                    SELECT
+                        ST_LineSubstring(road.way, GREATEST(0, along.position - along.half), LEAST(1, along.position + along.half)) AS way,
+                        -- the refuge in the middle of the road and the tactile paving
+                        -- at the kerbs are both features of the road rather than of the
+                        -- markings, so they are drawn over the middle half of the marking
+                        -- depth and read as patches rather than as full length stripes
+                        CASE WHEN node.int_crossing_island = 'yes' OR node.int_tactile_paving = 'yes' THEN
+                          ST_LineSubstring(road.way, GREATEST(0, along.position - along.half / 2), LEAST(1, along.position + along.half / 2))
+                        END AS short_way
                       FROM (
                         SELECT
-                            segments.*,
-                            -- every direction found at this node, to check them against each other below
-                            array_agg(segments.angle) OVER (PARTITION BY segments.x, segments.y) AS angles
-                          FROM (
-                            SELECT
-                                s.way,
-                                s.short_way,
-                                v.highway,
-                                v.road_id,
-                                c.int_crossing_island,
-                                c.int_tactile_paving,
-                                v.layernotnull,
-                                c.osm_id,
-                                v.z_order,
-                                v.x,
-                                v.y,
-                                (degrees(ST_Azimuth(ST_StartPoint(s.way), ST_EndPoint(s.way)))::numeric % 180.0) AS angle
-                              FROM (
-                                SELECT
-                                    osm_id,
-                                    way,
-                                    CASE WHEN tags->'crossing:island' = 'yes' THEN 'yes' ELSE 'no' END AS int_crossing_island,
-                                    CASE WHEN tags->'tactile_paving' = 'yes' THEN 'yes' ELSE 'no' END AS int_tactile_paving
-                                  FROM planet_osm_point
-                                  WHERE way && !bbox!
-                                    AND Z(!scale_denominator!) >= 18
-                                    AND highway = 'crossing'
-                                    -- marked, preferring crossing:markings over the crossing key
-                                    AND CASE
-                                          WHEN tags->'crossing:markings' IS NOT NULL THEN tags->'crossing:markings' <> 'no'
-                                          ELSE tags->'crossing' IN ('marked', 'zebra', 'uncontrolled', 'traffic_signals')
-                                        END
-                              ) AS c
-                              JOIN (
-                                SELECT r.way, r.highway, r.layernotnull, r.z_order, r.osm_id AS road_id,
-                                    ST_X(d.geom) AS x,
-                                    ST_Y(d.geom) AS y
-                                  FROM (
-                                    SELECT way, highway, COALESCE(layer,0) AS layernotnull, z_order, osm_id
-                                      FROM planet_osm_line
-                                      WHERE way && !bbox!
-                                        AND Z(!scale_denominator!) >= 18
-                                        AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary',
-                                                        'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
-                                                        'unclassified', 'residential', 'living_street', 'road')
-                                        AND (tunnel IS NULL OR NOT tunnel IN ('yes', 'building_passage', 'avalanche_protector'))
-                                        AND (covered IS NULL OR NOT covered = 'yes')
-                                        AND (bridge IS NULL OR NOT bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct'))
-                                        AND ST_Length(way) > 0
-                                  ) AS r,
-                                  LATERAL ST_DumpPoints(r.way) AS d
-                              ) AS v
-                                ON v.x = ST_X(c.way) AND v.y = ST_Y(c.way)
-                              CROSS JOIN LATERAL (
-                                SELECT
-                                    ST_LineSubstring(v.way, GREATEST(0, m.position - m.half), LEAST(1, m.position + m.half)) AS way,
-                                    -- the refuge in the middle of the road and the tactile paving
-                                    -- at the kerbs are both features of the road rather than of the
-                                    -- markings, so they are drawn over the middle half of the marking
-                                    -- depth and read as patches rather than as full length stripes
-                                    CASE WHEN c.int_crossing_island = 'yes' OR c.int_tactile_paving = 'yes' THEN
-                                      ST_LineSubstring(v.way, GREATEST(0, m.position - m.half / 2), LEAST(1, m.position + m.half / 2))
-                                    END AS short_way
-                                  FROM (
-                                    SELECT
-                                        ST_LineLocatePoint(v.way, c.way) AS position,
-                                        (3.0 / ST_Length(v.way)) AS half
-                                  ) AS m
-                              ) AS s
-                              WHERE ST_NPoints(s.way) > 1
-                          ) AS segments
-                      ) AS a
-                      -- where the roads meeting at a crossing node disagree about the
-                      -- direction by more than 40 degrees it cannot be told which road is
-                      -- being crossed
-                      WHERE NOT EXISTS (
-                        SELECT 1
-                          FROM unnest(a.angles) AS p(angle_a), unnest(a.angles) AS q(angle_b)
-                          WHERE LEAST(abs(p.angle_a - q.angle_b), 180.0 - abs(p.angle_a - q.angle_b)) >= 40.0
-                      )
-                  ) AS kept
-                  GROUP BY kept.x, kept.y, kept.osm_id, kept.int_crossing_island, kept.int_tactile_paving
-              ) AS crossings
+                            ST_LineLocatePoint(road.way, node.way) AS position,
+                            3.0 / ST_Length(road.way) AS half
+                      ) AS along
+                  ) AS piece
+                  -- the direction of the piece, to compare the roads meeting at the node
+                  CROSS JOIN LATERAL (
+                    SELECT degrees(ST_Azimuth(ST_StartPoint(piece.way), ST_EndPoint(piece.way)))::numeric % 180.0 AS angle
+                  ) AS direction
+                  WHERE ST_NPoints(piece.way) > 1
+                  GROUP BY node.osm_id, node.int_crossing_island, node.int_tactile_paving
+                  -- where the roads meeting at the node disagree about the direction by
+                  -- 40 degrees or more it cannot be told which road is being crossed
+                  HAVING LEAST(max(direction.angle) - min(direction.angle), 180 - (max(direction.angle) - min(direction.angle))) < 40
+              ) AS crossing
               -- the width and casing the road is drawn with at z18, z19 and z20, the
               -- same numbers as the width and casing variables in roads.mss, and the
               -- number of bars across it: five on the classes drawn at full width and
@@ -922,33 +884,33 @@ Layer:
                   ('residential',    13,  17, 17, 0.8, 3),
                   ('living_street',  13,  17, 17, 0.8, 3),
                   ('road',            8.5, 11, 11, 0.8, 3)
-              ) AS road(highway, z18, z19, z20, casing, bars) ON road.highway = crossings.highway
+              ) AS style(highway, z18, z19, z20, casing, bars) ON style.highway = crossing.highway
               CROSS JOIN LATERAL (
-                SELECT (CASE LEAST(Z(!scale_denominator!), 20) WHEN 18 THEN road.z18 WHEN 19 THEN road.z19 ELSE road.z20 END) - 2 * road.casing AS width
+                SELECT (CASE LEAST(Z(!scale_denominator!), 20) WHEN 18 THEN style.z18 WHEN 19 THEN style.z19 ELSE style.z20 END) - 2 * style.casing AS width
               ) AS fill
               -- the bars cover 0.8 of the fill and the gaps between them are as wide
               -- as the bars, so n bars are 2n-1 slots wide
               CROSS JOIN LATERAL (
-                SELECT 0.8 * fill.width / (2 * road.bars - 1) AS width
+                SELECT 0.8 * fill.width / (2 * style.bars - 1) AS width
               ) AS bar
               CROSS JOIN LATERAL (
                 -- the bars, two slots apart either side of the centre line
-                SELECT ('crossing_' || crossings.highway) AS feature, crossings.way, bar.width AS line_width, 2 * k * bar.width AS line_offset
-                  FROM generate_series(-(road.bars - 1) / 2, (road.bars - 1) / 2) AS k
+                SELECT ('crossing_' || crossing.highway) AS feature, crossing.way, bar.width AS line_width, 2 * k * bar.width AS line_offset
+                  FROM generate_series(-(style.bars - 1) / 2, (style.bars - 1) / 2) AS k
                   -- the refuge takes the place of the bar on the centre line
-                  WHERE NOT (k = 0 AND crossings.int_crossing_island = 'yes')
+                  WHERE NOT (k = 0 AND crossing.int_crossing_island = 'yes')
                 UNION ALL
-                SELECT 'crossing_island', crossings.short_way, bar.width, 0
-                  WHERE crossings.int_crossing_island = 'yes'
+                SELECT 'crossing_island', crossing.short_way, bar.width, 0
+                  WHERE crossing.int_crossing_island = 'yes'
                 UNION ALL
                 -- the tactile paving, a strip across the kerb on either side
-                SELECT 'crossing_tactile', crossings.short_way, 0.12 * fill.width, side * 0.5 * fill.width
+                SELECT 'crossing_tactile', crossing.short_way, 0.12 * fill.width, side * 0.5 * fill.width
                   FROM (VALUES (-1), (1)) AS kerb(side)
-                  WHERE crossings.int_tactile_paving = 'yes'
+                  WHERE crossing.int_tactile_paving = 'yes'
               ) AS part
               -- three or more ways meeting at the node cannot be merged into a single
               -- line, which is the same ambiguity the direction test above rejects
-              WHERE ST_GeometryType(crossings.way) = 'ST_LineString' -- end of crossing select
+              WHERE ST_GeometryType(crossing.way) = 'ST_LineString' -- end of crossing select
             ) AS features
           ORDER BY
             layernotnull,
