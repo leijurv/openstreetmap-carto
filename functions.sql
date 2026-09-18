@@ -230,7 +230,13 @@ $$;
    is first drawn. Above z20 the z20 width applies. Classes can also be
    defined from other classes, see the end of the function: a class can be
    drawn like another one, or, say, 1.2 times as wide as another one at every
-   zoom level. */
+   zoom level.
+
+   The casings hold the widths as the style has drawn them so far, which in a
+   few places are not the casing widths it defined: the casing was only
+   declared again at the zoom levels where the width of the road changed, so
+   where it did not change the casing of the zoom level before stayed in use.
+   Those values are marked. */
 CREATE OR REPLACE FUNCTION carto_line_widths(zoom integer)
   RETURNS TABLE (class text, line_width float, casing_width float, bridge_casing_width float)
   LANGUAGE SQL
@@ -244,40 +250,45 @@ WITH
   road(class, casing, bridge_casing, widths) AS (VALUES
     --                                               z6   z7   z8   z9   z10  z11  z12  z13  z14  z15  z16  z17  z18  z19  z20
     ('motorway',       'major',     'major',     ARRAY[  0.4, 0.8, 1,   1.4, 1.9, 2.0, 3.5, 6,   6,   10,  10,  18,  21,  27,  33]),
-    ('motorway_link',  'minor',     'minor',     ARRAY[                      1.9, 2.0, 1.5, 4,   4,   7.8, 7.8, 12,  13,  16,  17]),
+    ('motorway_link',  'link',      'minor',     ARRAY[                      1.9, 2.0, 1.5, 4,   4,   7.8, 7.8, 12,  13,  16,  17]),
     ('trunk',          'major',     'major',     ARRAY[  0.4, 0.6, 1,   1.4, 1.9, 1.9, 3.5, 6,   6,   10,  10,  18,  21,  27,  27]),
-    ('trunk_link',     'minor',     'minor',     ARRAY[                      1.9, 1.9, 1.5, 4,   4,   7.8, 7.8, 12,  13,  16,  16]),
+    ('trunk_link',     'link',      'minor',     ARRAY[                      1.9, 1.9, 1.5, 4,   4,   7.8, 7.8, 12,  13,  16,  16]),
     ('primary',        'major',     'major',     ARRAY[            1,   1.4, 1.8, 1.8, 3.5, 5,   5,   10,  10,  18,  21,  27,  27]),
-    ('primary_link',   'minor',     'minor',     ARRAY[                      1.8, 1.8, 1.5, 4,   4,   7.8, 7.8, 12,  13,  16,  16]),
-    ('secondary',      'secondary', 'major',     ARRAY[                 1,   1.1, 1.1, 3.5, 5,   5,   9,   10,  18,  21,  27,  27]),
-    ('secondary_link', 'minor',     'minor',     ARRAY[                      1.1, 1.1, 1.5, 4,   4,   7,   7,   12,  13,  16,  16]),
+    ('primary_link',   'link',      'minor',     ARRAY[                      1.8, 1.8, 1.5, 4,   4,   7.8, 7.8, 12,  13,  16,  16]),
+    ('secondary',      'secondary', 'secondary', ARRAY[                 1,   1.1, 1.1, 3.5, 5,   5,   9,   10,  18,  21,  27,  27]),
+    ('secondary_link', 'link',      'minor',     ARRAY[                      1.1, 1.1, 1.5, 4,   4,   7,   7,   12,  13,  16,  16]),
     ('tertiary',       'minor',     'minor',     ARRAY[                      0.7, 0.7, 2.5, 4,   5,   9,   10,  18,  21,  27,  27]),
-    ('tertiary_link',  'minor',     'minor',     ARRAY[                      0.7, 0.7, 1.5, 3,   3,   7,   7,   12,  13,  16,  16]),
+    ('tertiary_link',  'link',      'minor',     ARRAY[                      0.7, 0.7, 1.5, 3,   3,   7,   7,   12,  13,  16,  16]),
     ('unclassified',   'minor',     'minor',     ARRAY[                                0.8, 2.5, 3,   5,   6,   12,  13,  17,  17]),
     ('residential',    'minor',     'minor',     ARRAY[                                0.5, 2.5, 3,   5,   6,   12,  13,  17,  17]),
     ('living_street',  'minor',     'minor',     ARRAY[                                     2,   3,   5,   6,   12,  13,  17,  17]),
-    ('road',           'minor',     'minor',     ARRAY[                      1,   1,   1,   1,   2,   2,   3.5, 7,   8.5, 11,  11]),
-    ('service',        'minor',     'minor',     ARRAY[                                          2,   2,   3.5, 7,   8.5, 11,  12]),
+    ('road',           'service',   'service',   ARRAY[                      1,   1,   1,   1,   2,   2,   3.5, 7,   8.5, 11,  11]),
+    ('service',        'service',   'service',   ARRAY[                                          2,   2,   3.5, 7,   8.5, 11,  12]),
     ('service_minor',  'minor',     'minor',     ARRAY[                                                    2,   3.5, 4.75,5.5, 8.5]),
     ('footway',        NULL,        NULL,        ARRAY[                                          0.7, 1,   1.3, 1.3, 1.3, 1.6, 1.6]),
     ('cycleway',       NULL,        NULL,        ARRAY[                                     0.7, 0.7, 0.9, 0.9, 0.9, 1,   1.3, 1.3]),
     ('bridleway',      NULL,        NULL,        ARRAY[                                     0.3, 0.3, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2]),
     ('steps',          NULL,        NULL,        ARRAY[                                          0.7, 3,   3,   3,   3,   3,   3]),
     ('track',          NULL,        NULL,        ARRAY[                                     0.5, 0.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5]),
-    ('runway',         'major',     NULL,        ARRAY[                           2,   4,   6,   12,  18,  24,  24,  24,  24,  24]),
+    ('runway',         'runway',    NULL,        ARRAY[                           2,   4,   6,   12,  18,  24,  24,  24,  24,  24]),
     ('taxiway',        'secondary', NULL,        ARRAY[                           1,   1,   2,   4,   6,   8,   8,   8,   8,   8]),
     ('roller_coaster', NULL,        'minor',     ARRAY[                                               1,   2.5, 4,   6,   8,   12])
   ),
   -- the casings, on either side of the road
   casing(casing, widths) AS (VALUES
     --                   z12  z13  z14  z15  z16  z17  z18  z19  z20
-    ('major',        ARRAY[  0.5, 0.5, 0.6, 0.7, 0.7, 1,   1,   1,   1]),
+    ('major',        ARRAY[  0.5, 0.5, 0.5, 0.7, 0.7, 1,   1,   1,   1]),   -- z14: the casing of z13
+    ('runway',       ARRAY[            0.6, 0.7, 0.7, 1,   1,   1,   1]),   -- the major casing as defined
     ('secondary',    ARRAY[  0.3, 0.35,0.35,0.7, 0.7, 1,   1,   1,   1]),
-    ('minor',        ARRAY[  0.3, 0.5, 0.55,0.6, 0.6, 0.8, 0.8, 0.8, 0.8])
+    ('link',         ARRAY[  0.3, 0.5, 0.5, 0.6, 0.6, 0.8, 0.8, 0.8, 0.8]), -- z14: the casing of z13
+    ('minor',        ARRAY[  0.3, 0.5, 0.55,0.6, 0.6, 0.8, 0.8, 0.8, 0.8]),
+    ('service',      ARRAY[            0.55,0.55,0.6, 0.8, 0.8, 0.8, 0.8])  -- z15: the casing of z14
   ),
   bridge_casing(bridge_casing, widths) AS (VALUES
-    ('major',        ARRAY[  0.5, 0.5, 0.6, 0.75,0.75,1,   1,   1,   1]),
-    ('minor',        ARRAY[  0.1, 0.5, 0.5, 0.75,0.75,0.8, 0.8, 0.8, 0.8])
+    ('major',        ARRAY[  0.5, 0.5, 0.5, 0.75,0.75,1,   1,   1,   1]),   -- z14: the casing of z13
+    ('secondary',    ARRAY[  0.1, 0.5, 0.6, 0.75,0.75,1,   1,   1,   1]),   -- z12: the casing of the minor roads
+    ('minor',        ARRAY[  0.1, 0.5, 0.5, 0.75,0.75,0.8, 0.8, 0.8, 0.8]),
+    ('service',      ARRAY[            0.5, 0.5, 0.75,0.8, 0.8, 0.8, 0.8])  -- z15: the casing of z14
   ),
   -- the classes at this zoom level
   width AS (
