@@ -462,7 +462,10 @@ Layer:
             service,
             link,
             preserved,
-            COALESCE(layer,0) AS layernotnull
+            COALESCE(layer,0) AS layernotnull,
+            widths.line_width,
+            widths.casing_width,
+            widths.bridge_casing_width
           FROM ( -- subselect that contains both roads and rail
             SELECT
                 way,
@@ -480,6 +483,18 @@ Layer:
                   ELSE 'no'
                 END AS link,
                 NULL AS preserved,
+                -- the class of carto_line_widths() the road takes its widths from, see the
+                -- join below: a minor service road has widths of its own, a path those of
+                -- the class it is promoted to, and a road under construction those of the
+                -- road it is to become, a residential road if that is not tagged and
+                -- highway=road for a raceway
+                CASE
+                  WHEN (highway = 'service' OR (highway = 'construction' AND construction = 'service'))
+                       AND (service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure IN ('slipway')) THEN 'service_minor'
+                  WHEN highway = 'construction' THEN CASE construction WHEN 'raceway' THEN 'road' ELSE COALESCE(construction, 'residential') END
+                  WHEN highway = 'path' THEN carto_path_type(bicycle, horse)
+                  ELSE highway
+                END AS width_class,
                 layer,
                 osm_id,
                 z_order
@@ -504,6 +519,7 @@ Layer:
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
                   ELSE 'no'
                 END AS preserved,
+                NULL AS width_class,
                 layer,
                 osm_id,
                 z_order
@@ -511,6 +527,8 @@ Layer:
               WHERE (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes')
                 AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
             ) AS features
+          -- the widths the road is drawn with at this zoom level, see functions.sql
+          LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = width_class
           ORDER BY
             layernotnull,
             z_order,
@@ -630,7 +648,8 @@ Layer:
       <<: *osm2pgsql
       table: &turning-circle_sql |-
         (SELECT DISTINCT ON (way)
-            way, type, int_surface, int_tc_type, int_tc_service
+            way, type, int_surface, int_tc_type, int_tc_service,
+            widths.line_width, widths.casing_width
             FROM
               (SELECT
                 -- Valid line geometry requires at least two points that are NOT identical, therefore moving them slightly.
@@ -651,6 +670,9 @@ Layer:
                 AND l.way && !bbox!
                 AND p.way && !bbox! -- Both conditions are necessary for good index usage, even with the DWithin above
               ) _
+              -- the widths of the road the circle is on, see functions.sql
+              LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths
+                ON widths.class = CASE WHEN int_tc_type = 'service' AND int_tc_service = 'INT-minor' THEN 'service_minor' ELSE int_tc_type END
           ORDER BY
             way,
             z_order DESC,
@@ -707,9 +729,11 @@ Layer:
             link,
             preserved,
             int_crossing_part,
-            fill_width,
             int_crossing_island,
-            COALESCE(layer,0) AS layernotnull
+            COALESCE(layer,0) AS layernotnull,
+            widths.line_width,
+            widths.casing_width,
+            widths.bridge_casing_width
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
                 way,
@@ -727,8 +751,19 @@ Layer:
                   ELSE 'no'
                 END AS link,
                 NULL AS preserved,
+                -- the class of carto_line_widths() the road takes its widths from, see the
+                -- join below: a minor service road has widths of its own, a path those of
+                -- the class it is promoted to, and a road under construction those of the
+                -- road it is to become, a residential road if that is not tagged and
+                -- highway=road for a raceway
+                CASE
+                  WHEN (highway = 'service' OR (highway = 'construction' AND construction = 'service'))
+                       AND (service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure IN ('slipway')) THEN 'service_minor'
+                  WHEN highway = 'construction' THEN CASE construction WHEN 'raceway' THEN 'road' ELSE COALESCE(construction, 'residential') END
+                  WHEN highway = 'path' THEN carto_path_type(bicycle, horse)
+                  ELSE highway
+                END AS width_class,
                 NULL AS int_crossing_part,
-                NULL::float AS fill_width,
                 NULL AS int_crossing_island,
                 layer,
                 osm_id,
@@ -758,8 +793,8 @@ Layer:
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
                   ELSE 'no'
                 END AS preserved,
+                NULL AS width_class,
                 NULL AS int_crossing_part,
-                NULL::float AS fill_width,
                 NULL AS int_crossing_island,
                 layer,
                 osm_id,
@@ -777,10 +812,8 @@ Layer:
             -- Each row is a short piece of the road being crossed, centred on the
             -- crossing node and running along the road, on which the style draws the
             -- bars with line offsets. The markings therefore follow the road without
-            -- depending on the geometry of any separately mapped crossing way. The row
-            -- also carries the width the road fill is drawn at in pixels, so that the
-            -- style can lay the bars out across it without spelling out the dimensions
-            -- for every road class and zoom level.
+            -- depending on the geometry of any separately mapped crossing way, and take
+            -- the widths of the road from the join below like any other row.
             SELECT
                 part.way,
                 ('crossing_' || crossing.highway) AS feature,
@@ -791,11 +824,8 @@ Layer:
                 NULL AS service,
                 'no' AS link,
                 NULL AS preserved,
+                crossing.highway AS width_class,
                 part.int_crossing_part,
-                -- the width of the road fill at this zoom level: the line less its
-                -- two casings
-                carto_highway_width(crossing.highway, Z(!scale_denominator!))
-                  - 2 * carto_highway_casing_width(crossing.highway, Z(!scale_denominator!)) AS fill_width,
                 crossing.int_crossing_island,
                 crossing.layernotnull AS layer,
                 crossing.osm_id,
@@ -878,6 +908,8 @@ Layer:
               -- a piece that has shrunk to a point at the very end of a road
               WHERE ST_NPoints(part.way) > 1 -- end of crossing select
             ) AS features
+          -- the widths the road is drawn with at this zoom level, see functions.sql
+          LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = width_class
           ORDER BY
             layernotnull,
             z_order,
@@ -955,8 +987,12 @@ Layer:
             ) AS feature,
             CASE WHEN tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes' THEN 'yes' ELSE 'no' END AS int_tunnel,
             CASE WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link') THEN 'yes' ELSE 'no' END AS link,
-            carto_highway_int_surface(surface) AS int_surface
+            carto_highway_int_surface(surface) AS int_surface,
+            widths.line_width,
+            widths.casing_width,
+            widths.bridge_casing_width
           FROM planet_osm_roads
+            LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = highway
           WHERE highway IS NOT NULL
             OR (railway IN ('rail', 'light_rail', 'funicular', 'narrow_gauge')
               AND (tags->'railway:preserved' IS NULL OR tags->'railway:preserved' != 'yes')
@@ -995,7 +1031,10 @@ Layer:
             preserved,
             int_intermittent,
             'bridge' AS int_bridge_tunnel,
-            COALESCE(layer,0) AS layernotnull
+            COALESCE(layer,0) AS layernotnull,
+            widths.line_width,
+            widths.casing_width,
+            widths.bridge_casing_width
           FROM ( -- subselect that contains both roads and rail/aero
             SELECT
                 way,
@@ -1013,6 +1052,18 @@ Layer:
                   ELSE 'no'
                 END AS link,
                 NULL AS preserved,
+                -- the class of carto_line_widths() the road takes its widths from, see the
+                -- join below: a minor service road has widths of its own, a path those of
+                -- the class it is promoted to, and a road under construction those of the
+                -- road it is to become, a residential road if that is not tagged and
+                -- highway=road for a raceway
+                CASE
+                  WHEN (highway = 'service' OR (highway = 'construction' AND construction = 'service'))
+                       AND (service IN ('parking_aisle', 'drive-through', 'driveway') OR leisure IN ('slipway')) THEN 'service_minor'
+                  WHEN highway = 'construction' THEN CASE construction WHEN 'raceway' THEN 'road' ELSE COALESCE(construction, 'residential') END
+                  WHEN highway = 'path' THEN carto_path_type(bicycle, horse)
+                  ELSE highway
+                END AS width_class,
                 NULL AS int_intermittent,
                 layer,
                 osm_id,
@@ -1038,6 +1089,7 @@ Layer:
                   WHEN tags->'railway:preserved' = 'yes' THEN 'yes'
                   ELSE 'no'
                 END AS preserved,
+                NULL AS width_class,
                 NULL AS int_intermittent,
                 layer,
                 osm_id,
@@ -1056,6 +1108,7 @@ Layer:
                 NULL AS service,
                 NULL AS link,
                 NULL AS preserved,
+                NULL AS width_class,
                 CASE WHEN tags->'intermittent' IN ('yes')
                   OR tags->'seasonal' IN ('yes', 'spring', 'summer', 'autumn', 'winter', 'wet_season', 'dry_season')
                   THEN 'yes' ELSE 'no' END AS int_intermittent,
@@ -1068,6 +1121,8 @@ Layer:
                 AND (bridge IN ('yes', 'aqueduct') OR (waterway = 'fish_pass'))
                 AND (tunnel IS NULL OR tunnel NOT IN ('yes', 'culvert', 'flooded'))
             ) AS features
+          -- the widths the road is drawn with at this zoom level, see functions.sql
+          LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = width_class
           ORDER BY
             layernotnull,
             z_order,
@@ -1092,8 +1147,12 @@ Layer:
             way,
             aeroway,
             bridge IN ('yes', 'boardwalk', 'cantilever', 'covered', 'low_water_crossing', 'movable', 'trestle', 'viaduct') AS bridge,
-            carto_highway_int_surface(surface) AS int_surface
+            carto_highway_int_surface(surface) AS int_surface,
+            widths.line_width,
+            widths.casing_width
           FROM planet_osm_line
+            -- the widths of runways and taxiways, see functions.sql
+            LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = aeroway
           WHERE aeroway IN ('runway', 'taxiway')
           ORDER BY
             bridge NULLS FIRST,
@@ -1128,8 +1187,12 @@ Layer:
         (SELECT
             way,
             CASE WHEN (tunnel IN ('yes', 'building_passage') OR covered = 'yes' OR tags->'indoor' = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
-            CASE WHEN (bridge = 'yes' OR bridge = 'covered' OR bridge = 'viaduct') THEN 'yes' ELSE 'no' END AS bridge
+            CASE WHEN (bridge = 'yes' OR bridge = 'covered' OR bridge = 'viaduct') THEN 'yes' ELSE 'no' END AS bridge,
+            widths.line_width,
+            widths.bridge_casing_width
           FROM planet_osm_line
+            -- the widths of the track, see functions.sql
+            LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = 'roller_coaster'
           WHERE tags @> 'roller_coaster=>track' AND railway IS NULL
         ) AS roller_coaster
     properties:
@@ -1144,8 +1207,12 @@ Layer:
             way,
             COALESCE(layer,0) AS layernotnull,
             CASE WHEN (tunnel IN ('yes', 'building_passage') OR covered = 'yes' OR tags->'indoor' = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
-            CASE WHEN (bridge = 'yes' OR bridge = 'covered' OR bridge = 'viaduct') THEN 'yes' ELSE 'no' END AS bridge
+            CASE WHEN (bridge = 'yes' OR bridge = 'covered' OR bridge = 'viaduct') THEN 'yes' ELSE 'no' END AS bridge,
+            widths.line_width,
+            widths.bridge_casing_width
           FROM planet_osm_line
+            -- the widths of the track, see functions.sql
+            LEFT JOIN carto_line_widths(Z(!scale_denominator!)) AS widths ON widths.class = 'roller_coaster'
           WHERE tags @> 'roller_coaster=>track' AND railway IS NULL
           ORDER BY
             layernotnull -- put bottom layered track first
