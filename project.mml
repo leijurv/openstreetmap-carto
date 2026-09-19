@@ -1149,6 +1149,20 @@ Layer:
         ) AS admin_high_zoom
     properties:
       minzoom: 13
+  - id: street-lamps
+    geometry: point
+    <<: *extents
+    Datasource:
+      <<: *osm2pgsql
+      table: |-
+        (SELECT
+            way
+          FROM planet_osm_point
+          WHERE highway = 'street_lamp'
+        ) AS street_lamps
+    properties:
+      cache-features: true
+      minzoom: 19
   - id: power-minorline
     geometry: linestring
     <<: *extents
