@@ -152,7 +152,6 @@
       // footprint stays that of the previous 6px square
       marker-file: url('symbols/square4_in6.svg');
       marker-fill: @transportation-icon;
-      marker-width: 6;
       marker-clip: false;
     }
     [zoom >= 17] {
