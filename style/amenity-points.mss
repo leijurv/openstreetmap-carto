@@ -150,9 +150,10 @@
 
   [feature = 'highway_bus_stop'] {
     [zoom >= 16][zoom < 17] {
-      marker-file: url('symbols/square.svg');
+      // 4px square centered in a 6px transparent frame: the collision
+      // footprint stays that of the previous 6px square
+      marker-file: url('symbols/square4_in6.svg');
       marker-fill: @transportation-icon;
-      marker-width: 6;
       marker-clip: false;
     }
     [zoom >= 17] {
