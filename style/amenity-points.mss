@@ -18,6 +18,8 @@
 @man-made-icon: #666666;
 @advertising-grey: @man-made-icon;
 @barrier-icon: #3f3f3f;
+@street-lamp-light: #ffffaa;
+@street-lamp-pole: @man-made-icon;
 @landform-color: #d08f55;
 @leisure-green: darken(@park, 60%);
 @protected-area: #008000;
@@ -3040,6 +3042,27 @@
     text-face-name: @standard-font;
     text-halo-radius: @standard-halo-radius;
     text-halo-fill: @standard-halo-fill;
+  }
+}
+
+/* Street lamps: the light itself as a small pale yellow disc with the pole as a
+   dark dot in the middle. Non-blocking (allow-overlap + ignore-placement) and
+   drawn below all POI symbols and labels, see #3277. */
+#street-lamps [zoom >= 19] {
+  ::light {
+    opacity: 0.85;
+    marker-fill: @street-lamp-light;
+    marker-width: 6;
+    marker-line-width: 0;
+    marker-allow-overlap: true;
+    marker-ignore-placement: true;
+  }
+  ::pole {
+    marker-fill: @street-lamp-pole;
+    marker-width: 2;
+    marker-line-width: 0;
+    marker-allow-overlap: true;
+    marker-ignore-placement: true;
   }
 }
 
