@@ -207,7 +207,7 @@ values, and include an explicit `ELSE` in ranking `CASE` expressions. Choose
 defaults that preserve the intended order and keep distinct categories distinct.
 For example, a nullable boolean sorted with `NULLS FIRST` needs three ranks:
 NULL = 0, false = 1, true = 2. For `z_order`, use
-`COALESCE(z_order, 2147483647) AS sort_z_order`: the maximum integer places missing
+`COALESCE(z_order, 2147483647) AS z_order`: the maximum integer places missing
 values above all known road/rail ranks, preserving their existing position in
 both ascending and descending sorts. Keep nullable sorting attributes
 in the third group when there is no natural non-null representation.
