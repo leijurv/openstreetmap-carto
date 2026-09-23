@@ -176,8 +176,8 @@ Because SQL within YAML will not generally be syntax highlighted, indentation an
 * Hstore queries tested for NULL should be enclosed in parentheses, e.g. `(tags->'foo') IS NULL`.
 * To check if a tag is in the tags hstore, use `tags @> 'foo=>bar'`, relying on automatic conversion from `text` to `hstore`.
 
-Use a consistent column order in layer queries to avoid unnecessary work when
-PostgreSQL sorts the results:
+Put frequently used sort keys before other attributes, and geometry last.
+Use this column order in layer queries:
 
 1. Common columns, when present: `layernotnull`, `way_area`, `way_pixels`, `osm_id`, in that order.
 2. Other non-null, fixed-width sorting columns.
@@ -185,41 +185,25 @@ PostgreSQL sorts the results:
 4. Other attributes.
 5. The geometry (`way`), including in queries without `ORDER BY`.
 
-Apply this order to explicit `SELECT` lists in subqueries as well, keeping the
-columns of all `UNION` branches in matching positions. Do not add unused columns
-just to fill the common prefix, and remove outputs that neither sorting nor
-styling needs: PostgreSQL may replace them with NULL, even if their expressions
-are non-null. The column order in `SELECT` need not match the sorting precedence
-in `ORDER BY`.
+Follow the same order in explicit subquery `SELECT` lists, with matching positions
+in all `UNION` branches. Include only columns needed for sorting or styling.
+The column order in `SELECT` need not match the priority order in `ORDER BY`.
 
-Keep the common columns non-null in the sorted output. Use `COALESCE(layer, 0) AS layernotnull`.
-For points in polygon/point unions, use `0::real AS way_area` or
-`0::float AS way_pixels`, matching the polygon column's type. Polygon areas are
-positive; use `way_area = 0` to identify points and `way_area > 0` for polygons.
-Calculate pixel areas as
-`COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels`.
-Internal POI unions retain NULL areas for cheaper point/polygon tests; their
-sorted output contains non-null `way_pixels` instead of `way_area`.
+Keep the common columns non-null in the sorted output where possible, using
+defaults that preserve the intended order. Examples include
+`COALESCE(layer, 0) AS layernotnull` and `0::real AS way_area` for points in
+polygon/point unions. Internal POI queries retain NULL areas for point/polygon
+tests; their sorted output uses non-null `way_pixels` instead.
 
-Select sorting expressions as named columns and use those names in `ORDER BY`.
-Use `sort_*` names for dedicated ranking columns, prefer non-null fixed-width
-values, and include an explicit `ELSE` in ranking `CASE` expressions. Choose
-defaults that preserve the intended order and keep distinct categories distinct.
-For example, a nullable boolean sorted with `NULLS FIRST` needs three ranks:
-NULL = 0, false = 1, true = 2. For `z_order`, use
-`COALESCE(z_order, 2147483647) AS z_order`: the maximum integer places missing
-values above all known road/rail ranks, preserving their existing position in
-both ascending and descending sorts. Keep nullable sorting attributes
-in the third group when there is no natural non-null representation.
+Give dedicated sorting expressions `sort_*` names and use those names in
+`ORDER BY`. Include an explicit `ELSE` in ranking `CASE` expressions.
+For large sorts, combining several ranks into one integer score can reduce
+comparisons. Document the priorities and choose weights so lower priorities
+cannot outweigh a higher one.
 
-For large sorts, several small categorical ranks can be combined into one integer
-to reduce comparisons. The road queries use one decimal digit per category, with
-the most important category first. Keep each rank between 0 and 9 and document
-the digit order so a later category cannot outweigh an earlier one.
-
-This lets PostgreSQL access sort keys without repeatedly stepping over the geometry.
-Mapnik selects only the columns needed by the style, so columns added solely for
-sorting are not sent to Mapnik. See [#5297](https://github.com/openstreetmap-carto/openstreetmap-carto/pull/5297)
+PostgreSQL can access leading fixed-width values faster when preceding values
+are not NULL. Mapnik requests only attributes needed by the style, so dedicated
+sort columns are not sent to it. See [#5297](https://github.com/openstreetmap-carto/openstreetmap-carto/pull/5297)
 for the explanation and measurements.
 
 ## Map icon guidelines

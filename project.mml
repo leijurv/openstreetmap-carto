@@ -477,13 +477,13 @@ Layer:
         (SELECT
             COALESCE(layer,0) AS layernotnull,
             osm_id,
-            COALESCE(z_order, 2147483647) AS z_order,
-            -- Four priority digits: rail, service, access, surface (each 0-9).
-            1000 * (CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END)
-              + 100 * (CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
-                                  'railway_INT-funicular-service', 'railway_INT-narrow_gauge-service', 'railway_INT-monorail-service') THEN 0 ELSE 1 END)
-              + 10 * (CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END)
-              + (CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END) AS sort_road,
+            -- Road score: rail, service, access, surface, in decreasing priority.
+            (CASE WHEN substring(feature for 8) = 'railway_' THEN 2000 ELSE 1000 END)
+              + (CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
+                                  'railway_INT-funicular-service', 'railway_INT-narrow_gauge-service', 'railway_INT-monorail-service') THEN 0 ELSE 100 END)
+              + (CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 10 ELSE 20 END)
+              + (CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END) AS sort_road_score,
+            z_order,
             CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
             tracktype,
             int_surface,
@@ -542,7 +542,7 @@ Layer:
                 AND (railway NOT IN ('platform') AND railway IS NOT NULL) -- end of rail select
             ) AS features
           ORDER BY
-            layernotnull, z_order, sort_road, osm_id
+            layernotnull, z_order, sort_road_score, osm_id
         ) AS tunnels
     properties:
       cache-features: true
@@ -658,8 +658,8 @@ Layer:
       <<: *osm2pgsql
       table: &turning-circle_sql |-
         (SELECT DISTINCT ON (way)
-            COALESCE(z_order, 2147483647) AS z_order,
             CASE WHEN int_surface = 'unpaved' THEN 1 ELSE 0 END AS sort_surface,
+            z_order,
             type,
             int_surface,
             int_tc_type,
@@ -735,13 +735,13 @@ Layer:
         (SELECT
             COALESCE(layer,0) AS layernotnull,
             osm_id,
-            COALESCE(z_order, 2147483647) AS z_order,
-            -- Four priority digits: rail, service, access, surface (each 0-9).
-            1000 * (CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END)
-              + 100 * (CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
-                                  'railway_INT-funicular-service', 'railway_INT-narrow_gauge-service', 'railway_INT-monorail-service') THEN 0 ELSE 1 END)
-              + 10 * (CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END)
-              + (CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END) AS sort_road,
+            -- Road score: rail, service, access, surface, in decreasing priority.
+            (CASE WHEN substring(feature for 8) = 'railway_' THEN 2000 ELSE 1000 END)
+              + (CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
+                                  'railway_INT-funicular-service', 'railway_INT-narrow_gauge-service', 'railway_INT-monorail-service') THEN 0 ELSE 100 END)
+              + (CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 10 ELSE 20 END)
+              + (CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END) AS sort_road_score,
+            z_order,
             CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
             tracktype,
             int_surface,
@@ -805,7 +805,7 @@ Layer:
                 AND railway IS NOT NULL -- end of rail select
             ) AS features
           ORDER BY
-            layernotnull, z_order, sort_road, osm_id
+            layernotnull, z_order, sort_road_score, osm_id
         ) AS roads_sql
     properties:
       cache-features: true
@@ -866,7 +866,7 @@ Layer:
       table: |-
         (SELECT
             osm_id,
-            COALESCE(z_order, 2147483647) AS z_order,
+            z_order,
             COALESCE(
               ('highway_' || (CASE WHEN highway IN ('motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link')
                                      THEN substr(highway, 0, length(highway)-4) ELSE highway end)),
@@ -906,13 +906,13 @@ Layer:
         (SELECT
             COALESCE(layer,0) AS layernotnull,
             osm_id,
-            COALESCE(z_order, 2147483647) AS z_order,
-            -- Four priority digits: rail, service, access, surface (each 0-9).
-            1000 * (CASE WHEN substring(feature for 8) = 'railway_' THEN 2 ELSE 1 END)
-              + 100 * (CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
-                                  'railway_INT-funicular-service', 'railway_INT-narrow_gauge-service', 'railway_INT-monorail-service') THEN 0 ELSE 1 END)
-              + 10 * (CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 1 ELSE 2 END)
-              + (CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END) AS sort_road,
+            -- Road score: rail, service, access, surface, in decreasing priority.
+            (CASE WHEN substring(feature for 8) = 'railway_' THEN 2000 ELSE 1000 END)
+              + (CASE WHEN feature IN ('railway_INT-rail-service', 'railway_INT-tram-service', 'railway_INT-light_rail-service', 'railway_INT-subway-service',
+                                  'railway_INT-funicular-service', 'railway_INT-narrow_gauge-service', 'railway_INT-monorail-service') THEN 0 ELSE 100 END)
+              + (CASE int_access WHEN 'no' THEN 0 WHEN 'restricted' THEN 10 ELSE 20 END)
+              + (CASE WHEN int_surface IN ('unpaved') THEN 0 ELSE 1 END) AS sort_road_score,
+            z_order,
             CASE WHEN link = 'yes' THEN substr(feature, 0, length(feature)-4) ELSE feature END AS feature,
             tracktype,
             int_surface,
@@ -997,7 +997,7 @@ Layer:
                 AND (tunnel IS NULL OR tunnel NOT IN ('yes', 'culvert', 'flooded'))
             ) AS features
           ORDER BY
-            layernotnull, z_order, sort_road, osm_id
+            layernotnull, z_order, sort_road_score, osm_id
         ) AS bridges
     properties:
       cache-features: true
@@ -2113,8 +2113,8 @@ Layer:
         (SELECT
             COALESCE(layer, 0) AS layernotnull,
             l.osm_id,
-            COALESCE(z_order, 2147483647) AS z_order,
             length(name) AS name_length,
+            z_order,
             name,
             CASE WHEN substr(highway, length(highway)-4, 5) = '_link' THEN substr(highway, 0, length(highway)-4) ELSE highway END,
             CASE WHEN (tunnel IN ('yes', 'building_passage', 'avalanche_protector') OR covered = 'yes') THEN 'yes' ELSE 'no' END AS tunnel,
@@ -2173,8 +2173,8 @@ Layer:
         (SELECT
             COALESCE(layer, 0) AS layernotnull,
             l.osm_id,
-            COALESCE(z_order, 2147483647) AS z_order,
             length(name) AS name_length,
+            z_order,
             name,
             CASE
               WHEN (railway = 'rail' AND service IN ('spur', 'siding', 'yard')) THEN 'INT-rail-service'
