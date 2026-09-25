@@ -195,11 +195,16 @@ defaults that preserve the intended order. Examples include
 polygon/point unions. Internal POI queries retain NULL areas for point/polygon
 tests; their sorted output uses non-null `way_pixels` instead.
 
-Give dedicated sorting expressions `sort_*` names and use those names in
-`ORDER BY`. Include an explicit `ELSE` in ranking `CASE` expressions.
-For large sorts, combining several ranks into one integer score can reduce
-comparisons. Document the priorities and choose weights so lower priorities
-cannot outweigh a higher one.
+Name a dedicated rank derived from one classification column `sort_<column>`
+and use that name in `ORDER BY`. Prefer combining several small categorical
+ranks that are consecutive in `ORDER BY` into one integer `sort_score`.
+Keep common sort keys separate. Include an explicit `ELSE` in ranking `CASE`
+expressions, and document the priorities and weights so lower priorities
+cannot outweigh a higher one. Preserve the intended NULL ordering and ties.
+
+Define classifications once and derive sorting ranks from the classified
+values. Do not duplicate tag-value lists between classification and sorting;
+use an additional subquery if needed.
 
 PostgreSQL can access leading fixed-width values faster when preceding values
 are not NULL. Mapnik requests only attributes needed by the style, so dedicated
