@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
 # @mapnik/mapnik to 4.8.x (Mapnik 4.3.x, which adds the !unbuffered_bbox! SQL
 # token) and carries assorted rendering/UI fixes on top of upstream master.
 RUN npm set prefix /usr \
-    && npm install -g @mapnik/core-linux-x64@4.3.1 \
-    && npm install -g --unsafe-perm "git+https://git@github.com/leijurv/kosmtik.git#d262d05698fd93891d4ea27a2651beae721f56c2"
+    && npm install -g @mapnik/core-linux-x64@4.3.2 \
+    && npm install -g --unsafe-perm "git+https://git@github.com/leijurv/kosmtik.git#116d6aae724738c62a80733252eb680308d53837"
 
 WORKDIR /usr/lib/node_modules/kosmtik/
 RUN kosmtik plugins --install kosmtik-overpass-layer \
