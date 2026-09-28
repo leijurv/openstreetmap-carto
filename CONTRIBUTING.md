@@ -176,40 +176,45 @@ Because SQL within YAML will not generally be syntax highlighted, indentation an
 * Hstore queries tested for NULL should be enclosed in parentheses, e.g. `(tags->'foo') IS NULL`.
 * To check if a tag is in the tags hstore, use `tags @> 'foo=>bar'`, relying on automatic conversion from `text` to `hstore`.
 
-Put frequently used sort keys before other attributes, and geometry last.
+Particularly for queries returning many data rows, the efficiency of `ORDER BY`
+sorting in PostgreSQL can have a significant performance impact.
+See [#5297](https://github.com/openstreetmap-carto/openstreetmap-carto/pull/5297)
+for explanation and measurements.
+Performance can be optimised by careful ordering of columns in `SELECT` statements.
 Use this column order in layer queries:
 
 1. Common columns, when present: `layernotnull`, `way_area`, `way_pixels`, `osm_id`, in that order.
-2. Other non-null, fixed-width sorting columns.
-3. Remaining sorting columns, including nullable columns and variable-width types such as `text` and `numeric`.
-4. Other attributes.
-5. The geometry (`way`), including in queries without `ORDER BY`.
+2. Other non-null, fixed-width columns used in sorting. (PostgreSQL can access these values
+   faster when preceding values are also fixed-width and not NULL.)
+3. Remaining sorting columns, including nullable columns and variable-width types, such as `text` and `numeric`.
+4. Any other columns needed.
+5. The geometry (`way`) last, including in queries without `ORDER BY`.
 
-Follow the same order in explicit subquery `SELECT` lists, with matching positions
-in all `UNION` branches. Include only columns needed for sorting or styling.
 The column order in `SELECT` need not match the priority order in `ORDER BY`.
+The order above helps PostgreSQL access the sort keys efficiently.
+Follow the same order in subquery `SELECT` lists, with matching column positions
+in all `UNION` branches. Include only columns needed for sorting or styling.
 
-Keep the common columns non-null in the sorted output where possible, using
+Keep the columns used for sorting non-null where possible, using
 defaults that preserve the intended order. Examples include
 `COALESCE(layer, 0) AS layernotnull` and `0::real AS way_area` for points in
 polygon/point unions. Internal POI queries retain NULL areas for point/polygon
 tests; their sorted output uses non-null `way_pixels` instead.
 
-Name a dedicated rank derived from one classification column `sort_<column>`
-and use that name in `ORDER BY`. Prefer combining several small categorical
-ranks that are consecutive in `ORDER BY` into one integer `sort_score`.
-Keep common sort keys separate. Include an explicit `ELSE` in ranking `CASE`
-expressions, and document the priorities and weights so lower priorities
-cannot outweigh a higher one. Preserve the intended NULL ordering and ties.
+Create named sorting columns within the `SELECT` and use their names in `ORDER BY`.
+For a rank derived from one classification column, use the name `sort_<column>`.
+(Mapnik requests only attributes needed by the style, so columns used only for
+sorting are filtered out before rendering.) Include an explicit non-null `ELSE`
+in ranking `CASE` expressions.
+Consecutive small categorical ranks, such as `CASE WHEN X THEN 1 ELSE 2 END`,
+can be combined into a single integer `sort_score` column, using appropriate weights
+to ensure that lower priorities cannot outweigh a higher one.
+Document the priorities and weights, preserve the intended NULL ordering and ties,
+and keep common sort keys separate.
 
 Define classifications once and derive sorting ranks from the classified
 values. Do not duplicate tag-value lists between classification and sorting;
 use an additional subquery if needed.
-
-PostgreSQL can access leading fixed-width values faster when preceding values
-are not NULL. Mapnik requests only attributes needed by the style, so dedicated
-sort columns are not sent to it. See [#5297](https://github.com/openstreetmap-carto/openstreetmap-carto/pull/5297)
-for the explanation and measurements.
 
 ## Map icon guidelines
 
