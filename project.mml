@@ -1838,6 +1838,7 @@ Layer:
               CASE WHEN building = 'no' OR building IS NULL THEN 'no' ELSE 'yes' END AS is_building,
               tags->'operator' AS operator,
               ref,
+              way_area, -- NULL for points; the dam and weir label rules test it
               CASE WHEN way_area IS NOT NULL THEN ST_PointOnSurface(way) ELSE way END AS way
             FROM
               (SELECT
