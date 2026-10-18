@@ -2631,12 +2631,8 @@ Layer:
                 FROM planet_osm_polygon
                 WHERE way && !bbox! -- Not ST_PointOnSurface(way) because name might be NULL
                   AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
-                  -- Up to z16 only crossings and crosses have a style rule; the benches, waste
-                  -- baskets and barriers start at z17
-                  AND (Z(!scale_denominator!) >= 17
-                    OR railway IN ('level_crossing', 'crossing')
-                    OR historic = 'wayside_cross'
-                    OR man_made = 'cross')
+                  -- Areas only give barrier features here, and barriers start at z17
+                  AND Z(!scale_denominator!) >= 17
               UNION ALL
               SELECT
                   NULL::real AS way_area, -- NULL is faster for point tests; sorting uses way_pixels.
@@ -2651,10 +2647,8 @@ Layer:
                   way
                 FROM planet_osm_point
                 WHERE way && !bbox!
-                  -- Up to z16 only crossings and crosses have a style rule; the benches, waste
-                  -- baskets and barriers start at z17
+                  -- At z16 only crosses have a style rule; the benches, waste baskets and barriers start at z17
                   AND (Z(!scale_denominator!) >= 17
-                    OR railway IN ('level_crossing', 'crossing')
                     OR historic = 'wayside_cross'
                     OR man_made = 'cross')
               ) _
@@ -2668,7 +2662,7 @@ Layer:
           ) AS amenity_low_priority
     properties:
       cache-features: true
-      minzoom: 14
+      minzoom: 16
   - id: text-low-priority
     geometry: point
     <<: *extents
