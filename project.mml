@@ -63,12 +63,10 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             way_pixels,
             COALESCE(wetland, landuse, "natural") AS feature,
             way
           FROM (SELECT
-              way_area,
               COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
               ('landuse_' || (CASE WHEN landuse IN ('forest', 'farmland', 'residential', 'commercial', 'retail', 'industrial',
                                                     'meadow', 'grass', 'village_green', 'vineyard', 'orchard') THEN landuse END)) AS landuse,
@@ -81,7 +79,7 @@ Layer:
               AND way_area > 0.01*!pixel_width!::real*!pixel_height!::real
               AND building IS NULL
           ) AS features
-          ORDER BY way_area DESC, feature
+          ORDER BY way_pixels DESC, feature
         ) AS landcover_low_zoom
     properties:
       cache-features: true
@@ -94,13 +92,11 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             way_pixels,
             COALESCE(aeroway, golf, amenity, wetland, power, landuse, leisure, man_made, "natural", shop, tourism, highway, railway) AS feature,
             religion,
             way
           FROM (SELECT
-              way_area,
               COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
               ('aeroway_' || (CASE WHEN aeroway IN ('apron', 'aerodrome') THEN aeroway END)) AS aeroway,
               ('golf_' || (CASE WHEN (tags->'golf') IN ('rough', 'fairway', 'driving_range', 'water_hazard', 'green', 'bunker', 'tee') THEN tags->'golf' ELSE NULL END)) AS golf,
@@ -143,7 +139,7 @@ Layer:
               OR railway = 'station')
               AND way_area > 1*!pixel_width!::real*!pixel_height!::real
           ) AS landcover
-          ORDER BY way_area DESC, feature
+          ORDER BY way_pixels DESC, feature
         ) AS features
     properties:
       cache-features: true
@@ -234,7 +230,6 @@ Layer:
       table: |-
         (SELECT
             COALESCE(layer,0) AS layernotnull,
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             "natural",
             waterway,
@@ -251,7 +246,7 @@ Layer:
               OR "natural" IN ('water', 'glacier'))
             AND building IS NULL
             AND way_area > 1*!pixel_width!::real*!pixel_height!::real
-          ORDER BY layernotnull, way_area DESC
+          ORDER BY layernotnull, way_pixels DESC
         ) AS water_areas
     properties:
       cache-features: true
@@ -288,7 +283,6 @@ Layer:
       table: |-
         (SELECT
             COALESCE(layer,0) AS layernotnull,
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             surface,
             COALESCE(CASE WHEN landuse = 'forest' THEN 'wood' END, "natural") AS "natural",
@@ -308,7 +302,7 @@ Layer:
           WHERE ("natural" IN ('mud', 'wetland', 'wood', 'beach', 'shoal', 'reef', 'scrub') OR landuse IN ('forest', 'salt_pond'))
             AND building IS NULL
             AND way_area > 1*!pixel_width!::real*!pixel_height!::real
-          ORDER BY layernotnull, way_area DESC
+          ORDER BY layernotnull, way_pixels DESC
         ) AS landcover_area_symbols
     properties:
       cache-features: true
@@ -1301,7 +1295,6 @@ Layer:
       # results for most countries.
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             name,
             (SELECT ST_Transform(ST_PointOnSurface(geom),3857)
@@ -1316,7 +1309,7 @@ Layer:
             AND way_area > 100*POW(!scale_denominator!*0.001*0.28,2)
             AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
             AND osm_id < 0
-          ORDER BY way_area DESC
+          ORDER BY way_pixels DESC
         ) AS country_names
     properties:
       minzoom: 2
@@ -1349,7 +1342,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             name,
             admin_level,
@@ -1363,7 +1355,7 @@ Layer:
             AND way_area > 3000*POW(!scale_denominator!*0.001*0.28,2)
             AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
             AND osm_id < 0
-          ORDER BY way_area DESC
+          ORDER BY way_pixels DESC
         ) AS state_names
     properties:
       minzoom: 4
@@ -1626,7 +1618,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             man_made,
             name,
@@ -1637,7 +1628,7 @@ Layer:
             AND man_made = 'bridge'
             AND way_area > 125*POW(!scale_denominator!*0.001*0.28,2)
             AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
-          ORDER BY way_area DESC
+          ORDER BY way_pixels DESC
         ) AS bridge_text
     properties:
       minzoom: 11
@@ -1648,7 +1639,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             admin_level,
             name,
@@ -1663,7 +1653,7 @@ Layer:
             AND osm_id < 0
           ORDER BY
             admin_level,
-            way_area DESC
+            way_pixels DESC
         ) AS county_names
     properties:
       minzoom: 8
@@ -2087,7 +2077,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             highway,
             name,
@@ -2102,7 +2091,7 @@ Layer:
                   AND (covered NOT IN ('yes') OR covered IS NULL)))
             AND way_area > 3000*POW(!scale_denominator!*0.001*0.28,2)
             AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
-          ORDER BY way_area DESC
+          ORDER BY way_pixels DESC
         ) AS roads_area_text_name
     properties:
       minzoom: 15
@@ -2259,7 +2248,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             COALESCE(
               'landuse_' || CASE WHEN landuse IN ('forest', 'military', 'farmland') THEN landuse END,
@@ -2287,7 +2275,7 @@ Layer:
             AND building IS NULL
             AND way_area > 100*POW(!scale_denominator!*0.001*0.28,2)
             AND way_area < 768000*POW(!scale_denominator!*0.001*0.28,2)
-          ORDER BY way_area DESC
+          ORDER BY way_pixels DESC
         ) AS text_poly_low_zoom
     properties:
       minzoom: 4
@@ -2336,7 +2324,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             name,
             ST_PointOnSurface(way) AS way
@@ -2346,7 +2333,7 @@ Layer:
             AND building IS NOT NULL
             AND building NOT IN ('no')
             AND way_area < 4000000*POW(!scale_denominator!*0.001*0.28,2)
-          ORDER BY way_area DESC
+          ORDER BY way_pixels DESC
         ) AS building_text
     properties:
       minzoom: 14
@@ -2448,7 +2435,6 @@ Layer:
       <<: *osm2pgsql
       table: |-
         (SELECT
-            way_area,
             COALESCE(way_area/NULLIF(POW(!scale_denominator!*0.001*0.28,2),0), 0) AS way_pixels,
             admin_level::integer AS admin_level_numeric,
             name,
@@ -2460,7 +2446,7 @@ Layer:
             AND name IS NOT NULL
             AND osm_id < 0
             AND way_area > 196000*POW(!scale_denominator!*0.001*0.28,2)
-          ORDER BY admin_level_numeric ASC, way_area DESC
+          ORDER BY admin_level_numeric ASC, way_pixels DESC
         ) AS admin_text
     properties:
       minzoom: 11

@@ -200,6 +200,8 @@ defaults that preserve the intended order. Examples include
 `COALESCE(layer, 0) AS layernotnull` and `0::real AS way_area` for points in
 polygon/point unions. Internal POI queries retain NULL areas for point/polygon
 tests; their sorted output uses non-null `way_pixels` instead.
+To sort by area, use `way_pixels` where the query selects it, rather than also
+selecting `way_area` only for sorting. Sort by `way_area` only in queries without `way_pixels`.
 
 Create named sorting columns within the `SELECT` and use their names in `ORDER BY`.
 For a rank derived from one classification column, use the name `sort_<column>`.
