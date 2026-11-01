@@ -102,11 +102,16 @@ REGULAR = [
 ]
 
 
+# Byte-identical copies of all downloaded files, tried before the upstream sources
+MIRROR = "https://raw.githubusercontent.com/leijurv/osm-carto-fonts/517c5349ee38844e00ea027468e8dc40ebfdb4bd"
+
+
 # Attempt to download the font from repos in this order
 def findFontUrls(fontName, modifier):
+    path = f"hinted/ttf/{fontName}/{fontName}-{modifier}.ttf"
     return [
-        f"https://github.com/notofonts/noto-fonts/raw/main/hinted/ttf/{fontName}/{fontName}-{modifier}.ttf",
-        # currently only sourcing from one repo
+        f"{MIRROR}/noto-fonts/{path}",
+        f"https://github.com/notofonts/noto-fonts/raw/main/{path}",
     ]
 
 
@@ -170,13 +175,15 @@ for font in REGULAR_BOLD + REGULAR_BOLD_ITALIC + REGULAR_BLACK + REGULAR:
 # CJK fonts
 downloadToFile(
     [
-        "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+        f"{MIRROR}/noto-cjk/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+        "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
     ],
     "NotoSansCJKjp-Regular.otf",
 )
 downloadToFile(
     [
-        "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf"
+        f"{MIRROR}/noto-cjk/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf",
+        "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Bold.otf",
     ],
     "NotoSansCJKjp-Bold.otf",
 )
@@ -186,7 +193,10 @@ TMPDIR = tempfile.mkdtemp(prefix="get-fonts.")
 
 # Noto Emoji B&W isn't available as a separate download, so we need to download the package and unzip it
 downloadToFile(
-    ["https://archive.org/download/noto-emoji/Noto_Emoji.zip"],
+    [
+        f"{MIRROR}/noto-emoji/Noto_Emoji.zip",
+        "https://archive.org/download/noto-emoji/Noto_Emoji.zip",
+    ],
     "Noto_Emoji.zip",
     dir=TMPDIR,
 )
@@ -203,7 +213,11 @@ with zipfile.ZipFile(emojiPath, "r") as zip_ref:
         shutil.move(os.path.join(FONTDIR, "static", file), FONTDIR)
 
 downloadToFile(
-    ["https://mirrors.dotsrc.org/osdn/hanazono-font/68253/hanazono-20170904.zip"],
+    [
+        f"{MIRROR}/hanazono-font/68253/hanazono-20170904.zip",
+        # mirrors.dotsrc.org no longer has this file (#5331)
+        "https://web.archive.org/web/20260811045230id_/https://mirrors.dotsrc.org/osdn/hanazono-font/68253/hanazono-20170904.zip",
+    ],
     "hanazono.zip",
     dir=TMPDIR,
 )
